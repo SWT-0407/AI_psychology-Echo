@@ -9,21 +9,21 @@ from datetime import datetime
 
 
 # ==========================================
-# 1. 核心模型：固定比例线性模型 (确保单调性)
+# 1. 核心模型
 # ==========================================
 class ScientificEvalNet(nn.Module):
     def __init__(self):
         super(ScientificEvalNet, self).__init__()
         self.fc = nn.Linear(6, 1, bias=False)
-        # 固定专家权重分配：认同0.25, 社交0.2, 安全0.15, 情绪0.15, 焦虑0.15, 生理0.1
+        # 权重分配：情绪0.15, 焦虑0.15, 生理0.1, 安全0.15, 社交0.2, 认同0.25
         expert_weights = torch.tensor([[0.15, 0.15, 0.10, 0.15, 0.20, 0.25]])
         with torch.no_grad():
             self.fc.weight.copy_(expert_weights)
 
     def forward(self, x):
-        # 强制权重为正并归一化
         weights = torch.abs(self.fc.weight)
         normalized_weights = weights / weights.sum()
+        # 0-10 映射到 0-100 分制
         score = torch.matmul(x, normalized_weights.t()) * 10
         return score
 
@@ -34,115 +34,133 @@ def get_model():
 
 
 # ==========================================
-# 2. 系统配置
+# 2. 系统配置与变量定义
 # ==========================================
-st.set_page_config(page_title="大学生心理监测系统", page_icon="🎓", layout="wide")
-
-# 中文字体处理
+st.set_page_config(page_title="多维心理监测系统", page_icon="🧠", layout="wide")
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'sans-serif']
 plt.rcParams['axes.unicode_minus'] = False
 
-# 初始化 Session State
 if 'history' not in st.session_state:
     st.session_state.history = []
 
+# --- 固定数值设置区 ---
+x1, x2, x3, x4, x5, x6 = 7.5, 4.0, 5.5, 9.0, 6.5, 8.0
+current_vals = [x1, x2, x3, x4, x5, x6]
+dim_names = ["情绪积极度", "焦虑控制力", "生理活力", "行为安全度", "社交支持感", "自我认同感"]
+
+
 # ==========================================
-# 3. 界面布局
+# 3. 多维评价逻辑函数
 # ==========================================
-st.title("🎓 大学生心理健康智能监测系统")
-st.caption("实时同步版：解决图表滞后与趋势参照偏差")
+def get_detailed_status(score, vals):
+    """根据总分和维度分返回多维评价"""
+    # A. 基于总分的五段式评价
+    if score >= 85:
+        level = ("✨ 卓越状态", "success", "身心极度协调，具备极强的心理韧性与自我驱动力。")
+    elif score >= 70:
+        level = ("✅ 良好稳定", "info", "状态整体积极，能够有效应对日常生活中的压力。")
+    elif score >= 55:
+        level = ("⚠️ 亚健康波动", "warning", "处于平衡边缘，可能存在部分生活领域的失控感。")
+    elif score >= 40:
+        level = ("❗ 警示状态", "error", "心理资源消耗较大，建议主动减压并寻求社交支持。")
+    else:
+        level = ("🚨 高危预警", "error", "核心指标显著低落，请务必寻求专业辅导或暂停高压任务。")
+
+    # B. 基于维度的短板/亮点检测 (木桶效应)
+    critical_dims = [dim_names[i] for i, v in enumerate(vals) if v < 4.0]
+    strengths = [dim_names[i] for i, v in enumerate(vals) if v > 8.5]
+
+    return level, critical_dims, strengths
+
+
+# ==========================================
+# 4. 界面布局
+# ==========================================
+st.title("🎓 大学生心理健康多维监测系统")
 st.markdown("---")
 
-# --- 侧边栏 ---
 with st.sidebar:
     st.header("🔑 系统配置")
-    api_key = "sk-9286a96bcfc746dfa32d41bb19a093ac"  # 请确保 Key 有效
-
+    api_key = "sk-9286a96bcfc746dfa32d41bb19a093ac"
     st.write("---")
-    st.header("📊 维度测评 (0-10)")
-    dim_names = ["情绪积极度", "焦虑控制力", "生理活力", "行为安全度", "社交支持感", "自我认同感"]
+    st.header("📊 实时输入维度")
+    for name, val in zip(dim_names, current_vals):
+        st.caption(f"{name}")
+        st.progress(val / 10.0)
 
-    # 记录当前滑动条数值
-    current_vals = []
-    for name in dim_names:
-        val = st.slider(name, 0.0, 10.0, 6.0, 0.5)
-        current_vals.append(val)
+    submit = st.button("🚀 生成多维报告", type="primary", use_container_width=True)
 
-    st.write("---")
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        submit = st.button("🚀 生成报告", type="primary", use_container_width=True)
-    with col_btn2:
-        if st.button("清理数据", use_container_width=True):
-            st.session_state.history = []
-            st.rerun()
-
-# --- 主界面逻辑 ---
 if submit:
-    # A. 计算得分
+    # A. 模型计算
     model = get_model()
     x_tensor = torch.FloatTensor([current_vals])
     with torch.no_grad():
         current_score = round(model(x_tensor).item(), 2)
 
-    # B. 【核心修正】立即更新历史记录，以便图表渲染最新点
-    current_time = datetime.now().strftime("%H:%M:%S")
-    st.session_state.history.append({"score": current_score, "time": current_time})
+    # 更新历史
+    st.session_state.history.append({"score": current_score, "time": datetime.now().strftime("%H:%M:%S")})
 
-    # C. 计算趋势 delta (参照更新后的 history 倒数第二个值)
-    delta = None
-    if len(st.session_state.history) > 1:
-        # 此时 history[-1] 是当前分，history[-2] 是上一次得分
-        last_score = st.session_state.history[-2]['score']
-        delta = round(current_score - last_score, 2)
+    # B. 获取多维评价内容
+    (status_title, status_type, status_desc), critical, strengths = get_detailed_status(current_score, current_vals)
 
-    # D. 界面渲染
+    # C. 渲染报告
     col1, col2 = st.columns([1, 1.2], gap="large")
 
     with col1:
+        st.subheader("📡 综合评估结果")
         with st.container(border=True):
-            st.markdown(f"<h1 style='text-align: center; margin: 0;'>🎓</h1>", unsafe_allow_html=True)
-            st.metric("综合身心指数", f"{current_score}", delta=delta)
+            st.metric("综合身心指数", f"{current_score}",
+                      delta=round(current_score - st.session_state.history[-2]['score'], 2) if len(
+                          st.session_state.history) > 1 else None)
 
-            # 状态判定
-            if current_score < 45:
-                st.error("评级：存在高危短板 / 建议寻求辅导")
-            elif current_score < 65:
-                st.warning("评级：状态波动较大 / 需积极调节")
+            # 使用对应颜色渲染状态
+            if status_type == "success":
+                st.success(f"**{status_title}** \n\n {status_desc}")
+            elif status_type == "info":
+                st.info(f"**{status_title}** \n\n {status_desc}")
+            elif status_type == "warning":
+                st.warning(f"**{status_title}** \n\n {status_desc}")
             else:
-                st.success("评级：状态良好稳定 / 韧性十足")
+                st.error(f"**{status_title}** \n\n {status_desc}")
+
+        # 特色：多维亮点与短板卡片
+        c_col1, c_col2 = st.columns(2)
+        with c_col1:
+            if strengths:
+                st.markdown("🌟 **核心优势**")
+                for s in strengths: st.write(f"• {s}")
+        with c_col2:
+            if critical:
+                st.markdown("🚩 **需关注点**")
+                for c in critical: st.write(f"• {c}")
 
         # 雷达图
-        st.write("### 🧠 心理画像")
         fig, ax = plt.subplots(figsize=(5, 5), subplot_kw=dict(polar=True))
         angles = np.linspace(0, 2 * np.pi, 6, endpoint=False).tolist()
         vals = current_vals + current_vals[:1]
         angles += angles[:1]
-        ax.fill(angles, vals, color='#4A90E2', alpha=0.3)
-        ax.plot(angles, vals, color='#4A90E2', marker='o', linewidth=2)
+        ax.fill(angles, vals, color='#4BC0C0', alpha=0.3)
+        ax.plot(angles, vals, color='#4BC0C0', marker='o')
         ax.set_xticks(angles[:-1])
         ax.set_xticklabels(dim_names)
-        ax.set_ylim(0, 10)
         st.pyplot(fig)
 
     with col2:
-        st.write("### 📈 趋势记录")
-        # 此时 DataFrame 已经包含刚 append 进去的最新数据
-        df = pd.DataFrame(st.session_state.history)
-        st.line_chart(df.set_index('time'))
+        st.subheader("📈 状态趋势与建议")
+        st.line_chart(pd.DataFrame(st.session_state.history).set_index('time'))
 
-        st.write("### 📝 AI 深度分析 (大学生版)")
-        with st.spinner("AI 专家正在分析您的心理画像..."):
-            prompt = (
-                f"你是一位擅长大学生心理辅导的专家。测评者得分{current_score}分。维度数据：情绪{current_vals[0]}, "
-                f"焦虑控制{current_vals[1]}, 生理{current_vals[2]}, 行为安全{current_vals[3]}, 社交支持{current_vals[4]}, 自我认同{current_vals[5]}。"
-                f"请给出简短、针对性强的建议。"
-            )
-            try:
-                r = requests.post("https://api.deepseek.com/chat/completions",
-                                  headers={"Authorization": f"Bearer {api_key}"},
-                                  json={"model": "deepseek-chat",
-                                        "messages": [{"role": "user", "content": prompt}]})
-                st.markdown(r.json()['choices'][0]['message']['content'])
-            except:
-                st.error("AI 报告生成时网络波动，请检查 API Key。")
+        with st.expander("📝 查看 AI 深度辅导建议", expanded=True):
+            with st.spinner("专家分析中..."):
+                prompt = (
+                    f"作为校园心理专家，分析得分{current_score}（{status_title}）。"
+                    f"重点关注短板：{critical if critical else '无'}。优势维度：{strengths if strengths else '中规中矩'}。"
+                    f"请给出一份针对性强的行动方案。"
+                )
+                try:
+                    r = requests.post("https://api.deepseek.com/chat/completions",
+                                      headers={"Authorization": f"Bearer {api_key}"},
+                                      json={"model": "deepseek-chat",
+                                            "messages": [{"role": "user", "content": prompt}]})
+                    st.markdown(r.json()['choices'][0]['message']['content'])
+                except:
+                    st.error("AI 接口未响应。")
