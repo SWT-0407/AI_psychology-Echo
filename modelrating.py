@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from datetime import datetime
+import random
 
 
 # ==========================================
@@ -15,7 +16,6 @@ class ScientificEvalNet(nn.Module):
     def __init__(self):
         super(ScientificEvalNet, self).__init__()
         self.fc = nn.Linear(6, 1, bias=False)
-        # 权重分配：情绪0.15, 焦虑0.15, 生理0.1, 安全0.15, 社交0.2, 认同0.25
         expert_weights = torch.tensor([[0.15, 0.15, 0.10, 0.15, 0.20, 0.25]])
         with torch.no_grad():
             self.fc.weight.copy_(expert_weights)
@@ -23,7 +23,6 @@ class ScientificEvalNet(nn.Module):
     def forward(self, x):
         weights = torch.abs(self.fc.weight)
         normalized_weights = weights / weights.sum()
-        # 0-10 映射到 0-100 分制
         score = torch.matmul(x, normalized_weights.t()) * 10
         return score
 
@@ -36,62 +35,53 @@ def get_model():
 # ==========================================
 # 2. 系统配置与变量定义
 # ==========================================
-st.set_page_config(page_title="多维心理监测系统", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="大学生心理监测系统", page_icon="🎓", layout="wide")
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'sans-serif']
 plt.rcParams['axes.unicode_minus'] = False
 
 if 'history' not in st.session_state:
     st.session_state.history = []
 
-# --- 固定数值设置区 ---
-x1, x2, x3, x4, x5, x6 = 7.5, 4.0, 5.5, 9.0, 6.5, 8.0
+# --- 维度变量 (固定值测试区) ---
+x1, x2, x3, x4, x5, x6 = 7.5, 4.5, 5.0, 9.0, 6.5, 8.0
 current_vals = [x1, x2, x3, x4, x5, x6]
 dim_names = ["情绪积极度", "焦虑控制力", "生理活力", "行为安全度", "社交支持感", "自我认同感"]
 
 
 # ==========================================
-# 3. 多维评价逻辑函数
+# 3. 指定 AI 生成方向的函数
 # ==========================================
-def get_detailed_status(score, vals):
-    """根据总分和维度分返回多维评价"""
-    # A. 基于总分的五段式评价
-    if score >= 85:
-        level = ("✨ 卓越状态", "success", "身心极度协调，具备极强的心理韧性与自我驱动力。")
-    elif score >= 70:
-        level = ("✅ 良好稳定", "info", "状态整体积极，能够有效应对日常生活中的压力。")
-    elif score >= 55:
-        level = ("⚠️ 亚健康波动", "warning", "处于平衡边缘，可能存在部分生活领域的失控感。")
-    elif score >= 40:
-        level = ("❗ 警示状态", "error", "心理资源消耗较大，建议主动减压并寻求社交支持。")
+def get_ai_direction(score, critical_dims):
+    """根据分数和短板，为 DeepSeek 指定文案创作方向"""
+    if score >= 80:
+        return "人设：充满活力的学长/学姐。方向：肯定、激励、分享喜悦，口吻要像阳光下的击掌。"
+    elif score >= 60:
+        return "人设：温和治愈的朋友。方向：认可、平衡生活、提供生活小建议，口吻要像午后的咖啡。 "
+    elif score >= 45:
+        return "人设：懂你的深夜树洞。方向：深度共情、缓解内耗、允许负面情绪，口吻要像柔软的毛毯。"
     else:
-        level = ("🚨 高危预警", "error", "核心指标显著低落，请务必寻求专业辅导或暂停高压任务。")
-
-    # B. 基于维度的短板/亮点检测 (木桶效应)
-    critical_dims = [dim_names[i] for i, v in enumerate(vals) if v < 4.0]
-    strengths = [dim_names[i] for i, v in enumerate(vals) if v > 8.5]
-
-    return level, critical_dims, strengths
+        return "人设：专业的校园守护者。方向：无条件接纳、紧急安抚、避风港理念，口吻要极其温柔且坚定。"
 
 
 # ==========================================
 # 4. 界面布局
 # ==========================================
-st.title("🎓 大学生心理健康多维监测系统")
+st.title("🎓 大学生心理健康智能监测系统")
+st.caption("实时同步版：解决图表滞后与趋势参照偏差")
 st.markdown("---")
 
 with st.sidebar:
     st.header("🔑 系统配置")
     api_key = "sk-9286a96bcfc746dfa32d41bb19a093ac"
     st.write("---")
-    st.header("📊 实时输入维度")
+    st.header("📊 维度数值")
     for name, val in zip(dim_names, current_vals):
-        st.caption(f"{name}")
-        st.progress(val / 10.0)
+        st.info(f"**{name}**: {val}")
 
     submit = st.button("🚀 生成多维报告", type="primary", use_container_width=True)
 
+# --- 主界面逻辑 ---
 if submit:
-    # A. 模型计算
     model = get_model()
     x_tensor = torch.FloatTensor([current_vals])
     with torch.no_grad():
@@ -100,67 +90,74 @@ if submit:
     # 更新历史
     st.session_state.history.append({"score": current_score, "time": datetime.now().strftime("%H:%M:%S")})
 
-    # B. 获取多维评价内容
-    (status_title, status_type, status_desc), critical, strengths = get_detailed_status(current_score, current_vals)
+    # 判定短板 (低于4分视为短板)
+    critical = [dim_names[i] for i, v in enumerate(current_vals) if v < 4.0]
 
-    # C. 渲染报告
     col1, col2 = st.columns([1, 1.2], gap="large")
 
     with col1:
-        st.subheader("📡 综合评估结果")
         with st.container(border=True):
+            st.markdown(f"<h1 style='text-align: center; margin: 0;'>🎓</h1>", unsafe_allow_html=True)
             st.metric("综合身心指数", f"{current_score}",
                       delta=round(current_score - st.session_state.history[-2]['score'], 2) if len(
                           st.session_state.history) > 1 else None)
-
-            # 使用对应颜色渲染状态
-            if status_type == "success":
-                st.success(f"**{status_title}** \n\n {status_desc}")
-            elif status_type == "info":
-                st.info(f"**{status_title}** \n\n {status_desc}")
-            elif status_type == "warning":
-                st.warning(f"**{status_title}** \n\n {status_desc}")
-            else:
-                st.error(f"**{status_title}** \n\n {status_desc}")
-
-        # 特色：多维亮点与短板卡片
-        c_col1, c_col2 = st.columns(2)
-        with c_col1:
-            if strengths:
-                st.markdown("🌟 **核心优势**")
-                for s in strengths: st.write(f"• {s}")
-        with c_col2:
-            if critical:
-                st.markdown("🚩 **需关注点**")
-                for c in critical: st.write(f"• {c}")
 
         # 雷达图
         fig, ax = plt.subplots(figsize=(5, 5), subplot_kw=dict(polar=True))
         angles = np.linspace(0, 2 * np.pi, 6, endpoint=False).tolist()
         vals = current_vals + current_vals[:1]
         angles += angles[:1]
-        ax.fill(angles, vals, color='#4BC0C0', alpha=0.3)
-        ax.plot(angles, vals, color='#4BC0C0', marker='o')
+        ax.fill(angles, vals, color='#4A90E2', alpha=0.3)
+        ax.plot(angles, vals, color='#4A90E2', marker='o', linewidth=2)
         ax.set_xticks(angles[:-1])
         ax.set_xticklabels(dim_names)
+        ax.set_ylim(0, 10)
         st.pyplot(fig)
 
     with col2:
-        st.subheader("📈 状态趋势与建议")
+        st.write("### 📈 深度趋势与多维解析")
         st.line_chart(pd.DataFrame(st.session_state.history).set_index('time'))
 
-        with st.expander("📝 查看 AI 深度辅导建议", expanded=True):
-            with st.spinner("专家分析中..."):
+        # --- 核心修改：多维结构化解析 ---
+        with st.container(border=True):
+            st.write("### 📝 专家级测评分析报告")
+            with st.spinner("心理专家正在多维解析您的状态..."):
+                # 确定解析方向
+                ai_direction = get_ai_direction(current_score, critical)
+
+                # 结构化 Prompt
                 prompt = (
-                    f"作为校园心理专家，分析得分{current_score}（{status_title}）。"
-                    f"重点关注短板：{critical if critical else '无'}。优势维度：{strengths if strengths else '中规中矩'}。"
-                    f"请给出一份针对性强的行动方案。"
+                    f"你是一位拥有10年临床经验的校园心理咨询专家。请针对以下测评数据进行深度、精准且富有亲和力的解析。\n"
+                    f"【测评总分】：{current_score}\n"
+                    f"【维度数据】：{dict(zip(dim_names, current_vals))}\n"
+                    f"【历史趋势】：{'正在上升' if len(st.session_state.history) > 1 and current_score >= st.session_state.history[-2]['score'] else '有所波动'}\n"
+                    f"\n要求按照以下四个维度展开深度分析：\n"
+                    f"1. **维度平衡与内在张力**：分析各维度间的配合。比如高认同低社交、或低生理高焦虑背后的心理机制是什么？\n"
+                    f"2. **校园生活镜像**：将数据转化为具体的场景（如：ddl压力下的反应、宿舍社交状态、课堂专注力）。\n"
+                    f"3. **心理资源评估**：评估测评者当前的‘精神带宽’和复原力，是处于‘消耗期’还是‘蓄能期’？\n"
+                    f"4. **处方级行动建议**：提供2条基于CBT（认知行为疗法）或正念的微小行动建议，要具体到‘去做什么’。\n"
+                    f"\n【文风要求】：专业严谨但拒绝教条，多用‘精神带宽、情绪反刍、社会支撑、多巴胺补偿’等专业词汇。字数300-500字。"
                 )
+
                 try:
                     r = requests.post("https://api.deepseek.com/chat/completions",
                                       headers={"Authorization": f"Bearer {api_key}"},
-                                      json={"model": "deepseek-chat",
-                                            "messages": [{"role": "user", "content": prompt}]})
-                    st.markdown(r.json()['choices'][0]['message']['content'])
-                except:
-                    st.error("AI 接口未响应。")
+                                      json={
+                                          "model": "deepseek-chat",
+                                          "messages": [{"role": "user", "content": prompt}],
+                                          "temperature": 0.85,  # 略微降低温度以保证逻辑严密性
+                                          "presence_penalty": 0.4
+                                      })
+
+                    analysis_text = r.json()['choices'][0]['message']['content']
+
+                    # 使用 Markdown 渲染解析内容
+                    st.markdown(analysis_text)
+
+                    st.write("---")
+                    # 动态生成个性化结语 (之前讨论的随机结语)
+                    closing_text = get_ai_direction(current_score, critical)
+                    st.caption(f"💡 温馨贴士：{closing_text}")
+
+                except Exception as e:
+                    st.error(f"深度解析生成失败，请检查 API 配置。错误详情：{e}")
