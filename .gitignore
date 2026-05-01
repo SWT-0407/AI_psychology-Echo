@@ -1,0 +1,13 @@
+# 忽略 .env 文件和包含私密信息的配置文件夹
+.env
+config.json
+settings-local.py
+
+# 忽略系统或编辑器生成的缓存文件
+__pycache__/
+.DS_Store
+*.pyc
+
+# 忽略依赖包文件夹
+node_modules/
+venv/

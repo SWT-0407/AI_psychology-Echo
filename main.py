@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 import random
+import os
+from dotenv import load_dotenv
 
 
 # ==========================================
@@ -65,7 +67,8 @@ if 'history' not in st.session_state:
     st.session_state.history = []
 
 # 配置信息
-MY_API_KEY = "sk-9286a96bcfc746dfa32d41bb19a093ac"
+load_dotenv()
+api_key = os.getenv("API_KEY")
 DIMENSIONS = {
     "x1": "情绪状态", "x2": "焦虑控制力", "x3": "生理状态",
     "x4": "行为与动力", "x5": "社交与支持", "x6": "认知与意义"
@@ -200,7 +203,7 @@ if not st.session_state.is_completed:
             history_for_llm.append({"role": msg["role"], "content": msg["content"]})
 
         try:
-            client = OpenAI(api_key=MY_API_KEY, base_url="https://api.deepseek.com")
+            client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
             with st.spinner("AI 正在分析您的状态..."):
                 response = client.chat.completions.create(
                     model="deepseek-chat",
@@ -304,7 +307,7 @@ else:
                 )
                 try:
                     r = requests.post("https://api.deepseek.com/chat/completions",
-                                      headers={"Authorization": f"Bearer {MY_API_KEY}"},
+                                      headers={"Authorization": f"Bearer {api_key}"},
                                       json={
                                           "model": "deepseek-chat",
                                           "messages": [{"role": "user", "content": prompt}],

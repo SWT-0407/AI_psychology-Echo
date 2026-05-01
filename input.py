@@ -9,6 +9,8 @@ import streamlit as st
 from openai import OpenAI
 import json
 import re
+import os
+from dotenv import load_dotenv
 
 # ==========================================
 # 1. 页面配置与初始化
@@ -39,8 +41,8 @@ DIMENSIONS = {
 # 2. 界面侧边栏：API配置与实时分数监控
 # ==========================================
 
-api_key = "sk-9286a96bcfc746dfa32d41bb19a093ac"  # 请替换为你真实的 DeepSeek API Key
-MY_API_KEY = "sk-9286a96bcfc746dfa32d41bb19a093ac"
+load_dotenv()
+api_key = os.getenv("API_KEY")
 
 # with st.sidebar:
 #     st.header("⚙️ 系统状态")
@@ -178,7 +180,7 @@ if not st.session_state.is_completed:
 
         # 2. 调用 DeepSeek API
         try:
-            client = OpenAI(api_key=MY_API_KEY, base_url="https://api.deepseek.com")
+            client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
 
             with st.spinner("AI 正在分析您的状态..."):
                 response = client.chat.completions.create(

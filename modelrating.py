@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 import random
+import os
+from dotenv import load_dotenv
 
 
 # ==========================================
@@ -101,7 +103,8 @@ st.markdown("---")
 # --- 侧边栏 ---
 with st.sidebar:
     st.header("🔑 系统配置")
-    api_key = "sk-9286a96bcfc746dfa32d41bb19a093ac"
+    load_dotenv()
+    api_key = os.getenv("API_KEY")
 
     st.write("---")
     st.header("📊 维度数值快照")
