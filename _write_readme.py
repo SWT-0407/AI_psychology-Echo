@@ -1,4 +1,5 @@
-# 🌱 AI_psychology — 大学生心理状态全周期评估系统
+# 临时脚本，用于写入 README.md
+content = """# 🌱 AI_psychology — 大学生心理状态全周期评估系统
 
 > 面向大学生的心理健康辅助工具，通过日记 + 多轮对话进行六维心理状态评估，并生成深度解析报告。
 
@@ -151,3 +152,9 @@ streamlit run main.py
 ## 📄 许可证
 
 本项目仅供学习研究使用。
+"""
+
+with open('README.md', 'w', encoding='utf-8') as f:
+    f.write(content)
+
+print('README.md 写入成功！')
