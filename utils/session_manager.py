@@ -37,6 +37,16 @@ def init_session_state():
     if "cloud_consent" not in st.session_state:
         st.session_state.cloud_consent = False
 
+    # ---- 历史记录新状态 ----
+    if "show_history" not in st.session_state:
+        st.session_state.show_history = False
+
+    if "selected_session" not in st.session_state:
+        st.session_state.selected_session = None
+
+    if "viewing_history" not in st.session_state:
+        st.session_state.viewing_history = False
+
 
 def reset_session_state():
     """
@@ -52,6 +62,9 @@ def reset_session_state():
     st.session_state.scores = {k: None for k in DIMENSION_KEYS}
     st.session_state.is_completed = False
     st.session_state.history = []
+    st.session_state.show_history = False
+    st.session_state.selected_session = None
+    st.session_state.viewing_history = False
 
 
 def get_current_scores():

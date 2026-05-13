@@ -5,6 +5,7 @@ from ui.sidebar import render_sidebar
 from ui.diary_page import render_diary_page
 from ui.chat_page import render_chat_page, process_ai_interaction
 from ui.report_page import render_report_page
+from ui.history_page import render_history_detail_page
 from styles.theme import inject_global_css, render_logo, render_hero
 # ==========================================
 # 0. 页面配置 & Session 初始化
@@ -22,9 +23,13 @@ render_sidebar()
 
 
 # ==========================================
-# 2. 主界面路由分发
+# 3. 主界面路由分发
 # ==========================================
-if not st.session_state.is_completed:
+# 优先级1：历史记录详情页
+if st.session_state.get("viewing_history") and st.session_state.get("selected_session"):
+    render_history_detail_page(st.session_state.selected_session)
+# 优先级2：评估流程
+elif not st.session_state.is_completed:
     # --- 第一阶段：日记 / 对话采集 ---
     is_first_turn = len(st.session_state.display_messages) <= 1
 
