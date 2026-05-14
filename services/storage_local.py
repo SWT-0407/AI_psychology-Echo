@@ -125,28 +125,37 @@ def get_all_sessions():
 def get_all_trend_data():
     """
     获取所有历史记录中的总分趋势，用于长期趋势图
+    每次对话作为一个独立数据点，横坐标显示 YYYY-MM-DD HH:MM:SS
 
     Returns:
-        list: [{"date": "...", "time": "...", "display_label": "...", "score": 72.5, ...}, ...]
+        list: [{"session_id": "...", "display_label": "...", "score": 72.5, ...}, ...]
     """
     all_trends = []
     for session_id in get_all_sessions():
         data = load_session(session_id)
         if data and "composite_score" in data:
-            # 从 session_id 解析日期和时间
-            parts = session_id.split("_")
-            date_part = parts[0]
-            time_part = parts[1] if len(parts) > 1 else "00:00"
-            # 格式化为可读时间
-            if len(time_part) >= 4:
-                time_str = f"{time_part[:2]}:{time_part[2:4]}"
+            # 使用会话中保存的时间戳（完整到秒）
+            timestamp = data.get("timestamp", "")
+            if timestamp:
+                try:
+                    dt = datetime.fromisoformat(timestamp)
+                    display_label = dt.strftime("%Y-%m-%d %H:%M:%S")
+                except:
+                    display_label = session_id.replace("_", " ")
             else:
-                time_str = time_part
-            # 生成唯一显示标签（用于趋势图横轴，确保同一天多条记录不重叠）
-            display_label = f"{date_part}\n{time_str}" if time_part != "00:00" else date_part
+                # 从 session_id 解析（兼容旧数据）
+                parts = session_id.split("_")
+                date_part = parts[0]
+                time_part = parts[1] if len(parts) > 1 else "000000"
+                if len(time_part) >= 6:
+                    time_str = f"{time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}"
+                elif len(time_part) >= 4:
+                    time_str = f"{time_part[:2]}:{time_part[2:4]}:00"
+                else:
+                    time_str = "00:00:00"
+                display_label = f"{date_part} {time_str}"
+
             all_trends.append({
-                "date": date_part,
-                "time": time_str,
                 "display_label": display_label,
                 "session_id": session_id,
                 "score": data.get("composite_score", 0),
@@ -154,7 +163,7 @@ def get_all_trend_data():
                 "summary": data.get("summary", ""),
             })
     # 按时间从旧到新排列（用于趋势图）
-    all_trends.reverse()
+    all_trends.sort(key=lambda x: x["display_label"])
     return all_trends
 
 

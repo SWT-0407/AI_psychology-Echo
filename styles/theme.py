@@ -442,6 +442,16 @@ GLOBAL_CSS = """
         }
     }
 
+    /* ===== 顶栏（header）背景色与主界面一致 ===== */
+    header[data-testid="stHeader"] {
+        background: linear-gradient(135deg, #f8fbff 0%, #eef4fb 100%) !important;
+    }
+
+    /* 顶栏中的 Deployment / Manage app 文字区域 */
+    header[data-testid="stHeader"] div {
+        background: transparent !important;
+    }
+
     /* ===== 隐藏 Streamlit 默认水印 ===== */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}

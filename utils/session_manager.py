@@ -47,6 +47,9 @@ def init_session_state():
     if "viewing_history" not in st.session_state:
         st.session_state.viewing_history = False
 
+    if "show_settings" not in st.session_state:
+        st.session_state.show_settings = False
+
 
 def reset_session_state():
     """

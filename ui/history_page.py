@@ -167,20 +167,20 @@ def render_history_detail_page(session_id):
             df_data = []
             for t in trend_until_now:
                 df_data.append({
-                    "date": t["date"],
+                    "会话时间": t["display_label"],
                     "score": t["score"],
                 })
             df = pd.DataFrame(df_data)
-            # 用索引做横轴确保顺序
+            # 用 display_label 做横轴确保顺序
             st.line_chart(
-                df.set_index("date"),
+                df.set_index("会话时间"),
                 color="#64b5f6",
                 use_container_width=True,
                 height=200
             )
             st.markdown(
                 f'<div style="text-align: center; font-size: 0.75rem; color: #9ab0c8; '
-                f'font-weight: 300;">共 {len(trend_until_now)} 次记录</div>',
+                f'font-weight: 300;">共 {len(trend_until_now)} 次对话记录</div>',
                 unsafe_allow_html=True
             )
         else:

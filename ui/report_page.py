@@ -11,6 +11,7 @@ from models.eval_net import calculate_composite_score
 from utils.status_assets import get_status_assets
 from utils.visualization import draw_radar_chart, configure_chinese_font
 from services.ai_service import generate_report
+from services.storage_local import get_all_trend_data
 
 
 def render_report_page():
@@ -75,10 +76,43 @@ def render_report_page():
         st.pyplot(fig)
 
     with col2:
-        # --- 趋势图 ---
+        # --- 趋势图（基于所有历史会话数据，每次对话一个数据点） ---
         st.subheader("📈 趋势记录与深度解析")
-        if st.session_state.history:
-            st.line_chart(pd.DataFrame(st.session_state.history).set_index('time'))
+
+        all_trends = get_all_trend_data()
+        if all_trends:
+            # 将当前会话的分数也加入趋势
+            current_label = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # 检查是否已有相同 label（避免重复）
+            existing_labels = {t["display_label"] for t in all_trends}
+            if current_label not in existing_labels:
+                trend_df = pd.DataFrame(
+                    [{"会话时间": current_label, "score": current_score}] +
+                    [{"会话时间": t["display_label"], "score": t["score"]} for t in all_trends]
+                )
+            else:
+                trend_df = pd.DataFrame(
+                    [{"会话时间": t["display_label"], "score": t["score"]} for t in all_trends]
+                )
+            st.line_chart(
+                trend_df.set_index("会话时间"),
+                color="#64b5f6",
+                use_container_width=True,
+                height=200
+            )
+            st.markdown(
+                f'<div style="text-align: center; font-size: 0.75rem; color: #9ab0c8; '
+                f'font-weight: 300;">共 {len(trend_df)} 次对话记录</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            # 无历史数据时，只显示当前会话的趋势（仅有本次）
+            st.line_chart(
+                pd.DataFrame([{"time": "当前", "score": current_score}]).set_index("time"),
+                color="#64b5f6",
+                use_container_width=True,
+                height=200
+            )
 
         # --- AI 深度解析 ---
         with st.container(border=True):
