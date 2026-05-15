@@ -7,11 +7,27 @@ from ui.chat_page import render_chat_page, process_ai_interaction
 from ui.report_page import render_report_page
 from ui.history_page import render_history_detail_page
 from styles.theme import inject_global_css, render_logo, render_hero
+from services.storage_auth import render_login_page
 # ==========================================
 # 0. 页面配置 & Session 初始化
 # ==========================================
 st.set_page_config(page_title=APP_TITLE, page_icon=APP_ICON, layout=APP_LAYOUT)
 init_session_state()
+
+# ==========================================
+# 0.5 登录/注册页面（优先级最高）
+# 用户未登录且未选择跳过时显示
+# ==========================================
+if not st.session_state.get("is_logged_in", False) and not st.session_state.get("skipped_login", False):
+    # 注入全局样式（仅注入样式）
+    inject_global_css()
+    # 渲染登录页面，返回是否已完成登录流程
+    login_done = render_login_page()
+    if login_done:
+        st.rerun()
+    # 登录页面渲染后直接停止，不显示其他内容
+    st.stop()
+
 # ==========================================
 # 1. 注入全局样式
 # ==========================================

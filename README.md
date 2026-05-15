@@ -32,8 +32,9 @@ AI_psychology/
 │
 ├── services/
 │   ├── ai_service.py        # DeepSeek API 调用与响应解析
+│   ├── storage_auth.py      # Supabase 用户认证（登录/注册/退出）
 │   ├── storage_local.py     # 本地文件存储（对话/评分历史）
-│   └── storage_cloud.py     # [预留] Supabase 云端存储
+│   └── storage_cloud.py     # Supabase 云端存储（上传/拉取/增量同步/隐私控制）
 │
 ├── ui/
 │   ├── sidebar.py           # 侧边栏（状态监控、评分追踪、历史记录子栏、重置）
@@ -115,14 +116,23 @@ DeepSeek API ──→ 解析 JSON 响应 ──→ 更新六维评分
 git clone https://github.com/SWT-0407/AI_psychology-Echo.git
 cd AI_psychology
 
-# 2. 创建 .env 文件（同目录下）
-# 文件内容：api_key="你的 DeepSeek API Key"
+# 2. 安装依赖
+pip install streamlit openai requests python-dotenv torch matplotlib pandas numpy supabase
 
-# 3. 运行
+# 3. 创建 .env 文件（同目录下）
+# 文件内容：
+# API_KEY="你的 DeepSeek API Key"
+# SUPABASE_URL="你的 Supabase 项目 URL"
+# SUPABASE_ANON_KEY="你的 Supabase 匿名公钥"
+
+# 4. 运行
 streamlit run main.py
 ```
 
-> ⚠️ **注意**：本项目依赖 DeepSeek API，需在 `.env` 文件中配置 `api_key` 才能正常运行。API Key 可前往 [DeepSeek 开放平台](https://platform.deepseek.com/) 获取。
+> ⚠️ **注意**：
+> - 本项目依赖 DeepSeek API，需在 `.env` 文件中配置 `API_KEY` 才能正常运行。API Key 可前往 [DeepSeek 开放平台](https://platform.deepseek.com/) 获取。
+> - 云端存储功能依赖 Supabase，需先在 Supabase Dashboard 中创建 `chat_history` 和 `users` 表（详见 SQL Editor 部分），并在 `.env` 中配置 `SUPABASE_URL` 和 `SUPABASE_ANON_KEY`。
+> - 若不想使用云端功能，可直接点击「跳过 → 本地使用」，所有数据仅存储在本地。
 
 ---
 
@@ -166,6 +176,9 @@ streamlit run main.py
 | 📊 疗愈风格雷达图 | ✅ |
 | 📈 深度解析报告 | ✅ |
 | 🌱 本地持久化存储（JSON） | ✅ |
+| ☁️ Supabase 云端存储（上传/拉取/增量同步） | ✅ |
+| 🔐 用户认证系统（登录/注册/SHA-256加密） | ✅ |
+| 🔒 隐私控制（可选择不上传聊天内容） | ✅ |
 | 📖 历史记录回溯（聊天 + 评分 + 雷达图 + 趋势图 + AI 建议） | ✅ |
 | 📉 截止至当前记录的趋势图（折线图） | ✅ |
 | 🏷️ 心理状态标签（能量迸发/稳健前行/微风荡漾等） | ✅ |
@@ -175,13 +188,12 @@ streamlit run main.py
 
 ## 🔮 未来优化方向
 
-1. **云端部署与持久化存储** — 完善 Supabase 云端存储（`storage_cloud.py` 已预留接口）
-2. **非线性模型训练** — 利用问卷数据集训练更精准的评分模型
-3. **Prompt 工程与微调** — 加入心理专业知识，提升对话专业性
-4. **虚拟伴侣功能** — 用户可自定义 AI 角色（家人/朋友/伴侣等）
+1. **非线性模型训练** — 利用问卷数据集训练更精准的评分模型
+2. **Prompt 工程与微调** — 加入心理专业知识，提升对话专业性
+3. **虚拟伴侣功能** — 用户可自定义 AI 角色（家人/朋友/伴侣等）
    > ⚖️ 严格遵守法规：服务对象限定为大学生及以上年龄群体
-5. **AI 自适应个性化** — AI 通过多轮对话自动学习用户偏好，选择最合适的交流风格
-6. **UI 界面优化** — 提升交互体验与视觉设计
+4. **AI 自适应个性化** — AI 通过多轮对话自动学习用户偏好，选择最合适的交流风格
+5. **UI 界面优化** — 提升交互体验与视觉设计
 
 ---
 

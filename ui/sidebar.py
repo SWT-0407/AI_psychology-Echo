@@ -104,14 +104,24 @@ def render_sidebar():
             st.session_state.show_settings = not current
             st.rerun()
 
-        # 展开设置子栏（暂时留空）
+        # 展开设置子栏
         if st.session_state.get("show_settings", False):
             st.markdown(
-                '<div style="padding: 0.3rem 0.8rem 0.8rem 2rem; color: #9ab0c8; '
-                'font-size: 0.82rem; font-weight: 300; font-style: italic;">'
-                '设置功能开发中...</div>',
+                '<div style="padding: 0.3rem 0.8rem 0.8rem 2rem;">',
                 unsafe_allow_html=True
             )
+            # 显示登录状态
+            from services.storage_auth import render_user_status
+            render_user_status()
+
+            st.markdown('<hr style="margin: 0.5rem 0;">', unsafe_allow_html=True)
+
+            # 隐私设置（仅登录用户可见）
+            if st.session_state.get("is_logged_in", False):
+                from services.storage_cloud import render_privacy_settings
+                render_privacy_settings()
+
+            st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<hr>', unsafe_allow_html=True)
 

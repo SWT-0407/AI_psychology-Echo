@@ -264,7 +264,8 @@ def auto_save_current_session():
     if st.session_state.get("cloud_consent", False):
         try:
             from services.storage_cloud import upload_session_to_cloud
-            upload_session_to_cloud(session_id, record_data)
+            upload_full = st.session_state.get("upload_full_content", True)
+            upload_session_to_cloud(session_id, record_data, upload_full)
         except Exception:
             pass  # 云端同步失败不影响本地保存
 
