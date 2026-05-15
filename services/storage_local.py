@@ -260,6 +260,14 @@ def auto_save_current_session():
 
     save_complete_session(session_id, record_data)
 
+    # 如果用户已授权云端存储，同步到 Supabase
+    if st.session_state.get("cloud_consent", False):
+        try:
+            from services.storage_cloud import upload_session_to_cloud
+            upload_session_to_cloud(session_id, record_data)
+        except Exception:
+            pass  # 云端同步失败不影响本地保存
+
 
 def _generate_summary(score, scores):
     """根据评分生成简短摘要"""
