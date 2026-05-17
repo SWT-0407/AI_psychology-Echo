@@ -1,4 +1,4 @@
-"""
+﻿"""
 对话采集页面（第二阶段）
 渲染多轮对话历史 + 聊天输入框，实现与 AI 的深度交流并动态评分。
 """
@@ -7,6 +7,7 @@ import streamlit as st
 from config import DIMENSIONS, DIMENSION_KEYS
 from services.ai_service import chat_with_ai, parse_ai_response
 from utils.prompts import build_dynamic_prompt
+from utils.rag_service import search_relevant_knowledge
 from services.storage_local import auto_save_current_session
 
 
@@ -24,8 +25,11 @@ def process_ai_interaction(user_input):
     # 1. 写入用户消息到显示历史
     st.session_state.display_messages.append({"role": "user", "content": user_input})
 
-    # 2. 构建动态 prompt（包含当前评分状态）
-    dynamic_prompt = build_dynamic_prompt(st.session_state.scores)
+    # 1.5 RAG 知识检索：根据用户输入从书籍知识库中检索相关内容
+    rag_context = search_relevant_knowledge(user_input, k=3)
+
+    # 2. 构建动态 prompt（包含当前评分状态 + RAG 知识）
+    dynamic_prompt = build_dynamic_prompt(st.session_state.scores, rag_context=rag_context)
 
     # 3. 构建消息历史
     messages_for_api = [{"role": "system", "content": dynamic_prompt}]
@@ -39,7 +43,7 @@ def process_ai_interaction(user_input):
         status_placeholder.markdown(
             '<div style="text-align: center; padding: 0.5rem;">'
             '<span style="color: #a0b8d0; font-weight: 300; font-size: 0.9rem;">'
-            '💭 正在用心品读...</span></div>',
+            '📖 正在用心品读...</span></div>',
             unsafe_allow_html=True
         )
         raw_result = chat_with_ai(messages_for_api)

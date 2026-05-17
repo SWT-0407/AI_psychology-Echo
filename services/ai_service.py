@@ -1,4 +1,4 @@
-"""
+﻿"""
 AI 服务模块
 封装与 DeepSeek API 的交互逻辑，包括多轮对话、JSON 解析等。
 """
@@ -69,16 +69,17 @@ def parse_ai_response(raw_result):
     return raw_result, {}, "ongoing"
 
 
-def generate_report(score, dimension_vals, dim_names, ai_direction, temperature=0.85):
+def generate_report(score, dimension_vals, dim_names, ai_direction, temperature=0.85, rag_context=""):
     """
     生成深度解析报告
 
     Args:
         score: float, 综合心理指数
         dimension_vals: list, 各维度评分
-        dim_names: list, 维度名称
-        ai_direction: str, AI 创作方向描述
+        dim_names: list, 维度名称列表
+        ai_direction: str, AI 创作人设方向
         temperature: float, 温度参数
+        rag_context: str, 从知识库检索到的书籍内容（可选）
 
     Returns:
         str: 生成的报告文本，失败返回 None
@@ -86,7 +87,8 @@ def generate_report(score, dimension_vals, dim_names, ai_direction, temperature=
     from utils.prompts import build_report_prompt
     import requests
 
-    prompt = build_report_prompt(score, dimension_vals, dim_names, ai_direction)
+    # 传入 rag_context 到 prompt 构建
+    prompt = build_report_prompt(score, dimension_vals, dim_names, ai_direction, rag_context=rag_context)
 
     try:
         response = requests.post(

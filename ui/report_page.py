@@ -1,4 +1,4 @@
-"""
+﻿"""
 深度解析报告页面（第三阶段）
 展示综合评估、雷达图、趋势记录和 AI 生成的深度解析报告。
 """
@@ -10,6 +10,7 @@ from config import DIMENSIONS, DIMENSION_KEYS
 from models.eval_net import calculate_composite_score
 from utils.status_assets import get_status_assets
 from utils.visualization import draw_radar_chart, configure_chinese_font
+from utils.rag_service import search_relevant_knowledge
 from services.ai_service import generate_report
 from services.storage_local import get_all_trend_data
 
@@ -22,7 +23,7 @@ def render_report_page():
     # 配置中文字体
     configure_chinese_font()
 
-    st.title("🧠 大学生心理健康深度监测报告")
+    st.title("📊 大学生心理健康深度监测报告")
     st.caption("基于深度解析架构 | 采集数据自动转化")
     st.markdown("---")
 
@@ -43,12 +44,20 @@ def render_report_page():
     # 获取动态资源
     icon, level_name, theme_color, ai_direction = get_status_assets(current_score, current_vals)
 
+    # ========== 1.5 RAG 知识检索 ==========
+    # 根据当前评分和维度值，检索相关的心理学知识
+    rag_query = f"情绪状态评分{current_score}分，其中"
+    dim_names_list = list(DIMENSIONS.values())
+    for i, v in enumerate(current_vals):
+        rag_query += f"{dim_names_list[i]}{v}分，"
+    rag_report_context = search_relevant_knowledge(rag_query, k=3)
+
     # ========== 2. 双列布局 ==========
     col1, col2 = st.columns([1, 1.3], gap="large")
 
     with col1:
         # --- 综合评估卡片 ---
-        st.subheader("📡 综合评估")
+        st.subheader("🧠 综合评估")
         with st.container(border=True):
             st.markdown(
                 f"<h1 style='text-align: center; font-size: 80px; margin: 0;'>{icon}</h1>",
@@ -67,7 +76,7 @@ def render_report_page():
             )
 
         # --- 六维雷达图 ---
-        st.write("### 🧠 维度画像")
+        st.write("### 🕊️ 维度画像")
         fig = draw_radar_chart(
             current_vals,
             list(DIMENSIONS.values()),
@@ -116,13 +125,14 @@ def render_report_page():
 
         # --- AI 深度解析 ---
         with st.container(border=True):
-            st.write("📝 **专家级深度解析报告**")
+            st.write("🔍 **专家级深度解析报告**")
             with st.spinner("心理专家正在分析维度张力..."):
                 content = generate_report(
                     score=current_score,
                     dimension_vals=current_vals,
                     dim_names=list(DIMENSIONS.values()),
-                    ai_direction=ai_direction
+                    ai_direction=ai_direction,
+                    rag_context=rag_report_context  # 传入 RAG 知识
                 )
 
                 if content:
