@@ -87,7 +87,7 @@ def chat_with_vision(image_bytes, messages, temperature=0.7):
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:image/jpeg;base64,{base64_image}",
-                            "detail": "low"
+                            "detail": detail
                         }
                     }
                 ]
@@ -108,7 +108,7 @@ def chat_with_vision(image_bytes, messages, temperature=0.7):
 # 千问：表情分析（专用版，短 prompt 快速响应）
 # ==========================================
 
-def analyze_facial_expression(image_bytes):
+def analyze_facial_expression(image_bytes, detail="low"):
     """
     使用千问视觉 API 进行精细化面部情绪分析
     基于维度情绪模型（Valence-Arousal-Dominance），输出连续量表值，
@@ -160,7 +160,7 @@ def analyze_facial_expression(image_bytes):
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:image/jpeg;base64,{base64_image}",
-                            "detail": "low"
+                            "detail": detail
                         }
                     }
                 ]
