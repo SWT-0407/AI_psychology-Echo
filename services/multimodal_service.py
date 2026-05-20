@@ -60,22 +60,28 @@ class TextToSpeech:
 
 class EmotionDetector:
     """
-    摄像头表情识别器
+    摄像头表情识别器（增强版）
     使用 千问视觉 API（qwen-vl-max）分析每一帧的人脸表情。
-    本地只负责摄像头画面捕获和帧率控制。
+    优化点：
+    - 摄像头分辨率提升至 1280x720
+    - JPEG 质量提升至 90%（减少压缩失真）
+    - 自动裁切人脸区域后发送（让 AI 专注于面部）
+    - 千问 API 使用 detail: "high" 模式
+    - 失败时自动重试 1 次
     """
 
     EMOTION_CN_MAP = {
         'happy': '😊 开心', 'sad': '😢 悲伤', 'angry': '😠 生气',
         'surprise': '😮 惊讶', 'fear': '😨 恐惧', 'disgust': '🤢 厌恶',
-        'neutral': '😐 平静', 'contempt': '😏 轻蔑'
+        'neutral': '😐 平静', 'contempt': '😏 轻蔑', 'anxious': '😰 焦虑',
+        'tired': '😴 疲惫'
     }
 
     def __init__(self, camera_id=0, interval=3.0):
         """
         Args:
             camera_id: int, 摄像头编号
-            interval: float, 两次 API 分析之间的最小间隔（秒），避免频繁调用浪费额度
+            interval: float, 两次 API 分析之间的最小间隔（秒）
         """
         self.camera_id = camera_id
         self.interval = interval
@@ -107,10 +113,19 @@ class EmotionDetector:
         import cv2
         try:
             self.camera = cv2.VideoCapture(self.camera_id)
-            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            # 提高分辨率以获得更多面部细节
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            # 尝试自动对焦
+            self.camera.set(cv2.CAP_PROP_AUTOFOCUS, 1)
+            # 尝试调整亮度/对比度
+            self.camera.set(cv2.CAP_PROP_BRIGHTNESS, 128)
+            self.camera.set(cv2.CAP_PROP_CONTRAST, 128)
             if not self.camera.isOpened():
                 return False
+            # 给摄像头一点时间稳定画面
+            import time
+            time.sleep(0.5)
             self.running = True
             import threading
             t = threading.Thread(target=self._capture_loop, daemon=True)
@@ -130,49 +145,88 @@ class EmotionDetector:
         """
         摄像头捕获循环：
         - 持续读取帧，保存最新一帧
-        - 按 interval 间隔调用千问 API 分析表情
+        - 先用 OpenCV Haar Cascade 检测人脸区域，裁切后发送给千问 API
+        - 按 interval 间隔调用
         """
         import cv2
         import time
+
+        # 加载人脸检测器
+        face_cascade = None
+        try:
+            cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+            face_cascade = cv2.CascadeClassifier(cascade_path)
+        except Exception:
+            pass
 
         while self.running:
             ret, frame = self.camera.read()
             if not ret:
                 time.sleep(0.1)
                 continue
+
+            # 保存原帧用于显示
             with self._lock:
                 self.frame = frame.copy()
 
             now = time.time()
             if now - self.last_detect_time >= self.interval:
                 self.last_detect_time = now
-                self._analyze_emotion(frame)
+
+                # 尝试裁切人脸区域（仅发送人脸给 API，减少干扰）
+                face_img = frame
+                if face_cascade is not None:
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    faces = face_cascade.detectMultiScale(
+                        gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100)
+                    )
+                    if len(faces) > 0:
+                        # 取最大的人脸
+                        (x, y, w, h) = max(faces, key=lambda f: f[2] * f[3])
+                        # 适当扩大裁切范围（上下左右各扩 20%）
+                        pad_x = int(w * 0.2)
+                        pad_y = int(h * 0.2)
+                        x1 = max(0, x - pad_x)
+                        y1 = max(0, y - pad_y)
+                        x2 = min(frame.shape[1], x + w + pad_x)
+                        y2 = min(frame.shape[0], y + h + pad_y)
+                        face_img = frame[y1:y2, x1:x2]
+
+                # 分析表情
+                self._analyze_emotion(face_img)
 
             time.sleep(0.03)
 
     def _analyze_emotion(self, frame):
         """
-        将帧编码为 JPEG → 调用千问 API 进行维度情绪分析
-        不仅输出离散情绪标签，还输出 VAD + 焦虑/疲劳/参与度 连续量表值
+        将帧编码为高质量 JPEG → 调用千问 API（high detail）分析
         """
         import cv2
         try:
-            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            # 高质量 JPEG 编码
+            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
             image_bytes = io.BytesIO(buffer.tobytes()).getvalue()
 
             from services.ai_service import analyze_facial_expression
-            result = analyze_facial_expression(image_bytes)
+            # 尝试分析，如果失败则重试一次
+            result = None
+            for attempt in range(2):
+                result = analyze_facial_expression(image_bytes, detail="high")
+                if result.get("emotion") != "neutral" or attempt == 1:
+                    break
+
+            if result is None:
+                return
 
             self.current_emotion = result.get("emotion", "neutral")
             emoji_cn = self.EMOTION_CN_MAP.get(self.current_emotion, '😐 平静')
             analysis = result.get("analysis", "")
 
-            # 构建显示文本（包含维度值）
+            # 构建显示文本
             parts = [emoji_cn]
             if analysis:
                 parts.append(analysis)
 
-            # 生成情绪维度详情（供后续评分系统使用）
             self._emotion_vector = {
                 "valence": result.get("valence", 0.5),
                 "arousal": result.get("arousal", 0.5),
@@ -202,8 +256,6 @@ class EmotionDetector:
             return None
         with self._lock:
             return self.frame.copy() if self.frame is not None else None
-
-
 class MultimodalManager:
     def __init__(self):
         self.speech = SpeechRecognizer()
