@@ -3,7 +3,7 @@ Session 状态管理模块
 集中管理 Streamlit session_state 的初始化和重置。
 """
 import streamlit as st
-from config import DIMENSION_KEYS
+from Multimodal.config import DIMENSION_KEYS
 
 
 def init_session_state():
@@ -98,6 +98,6 @@ def reset_session_state():
 
 def get_current_scores():
     """获取当前各维度评分列表（None 替换为 5）"""
-    from config import DIMENSION_KEYS
+    from Multimodal.config import DIMENSION_KEYS
     vals = [st.session_state.scores[k] for k in DIMENSION_KEYS]
     return [v if v is not None else 5 for v in vals]

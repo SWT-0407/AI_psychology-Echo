@@ -4,7 +4,7 @@
 包含疗愈风格的导航：开始聊天、历史记录（可展开子栏）、设置（可展开子栏）。
 """
 import streamlit as st
-from config import DIMENSIONS
+from Multimodal.config import DIMENSIONS
 from services.storage_local import get_session_summaries
 
 
@@ -93,6 +93,25 @@ def render_sidebar():
         # 展开历史记录子栏
         if st.session_state.get("show_history", False):
             _render_history_sublist()
+
+        # ===== 【多模态】=====
+        if st.button(
+            "🎙️  多模态",
+            use_container_width=True,
+            key="sidebar_multimodal_btn"
+        ):
+            current = st.session_state.get("show_multimodal", False)
+            st.session_state.show_multimodal = not current
+            st.rerun()
+
+        if st.session_state.get("show_multimodal", False):
+            st.markdown(
+                '<div style="padding: 0.3rem 0.8rem 0.8rem 2rem;">',
+                unsafe_allow_html=True
+            )
+            from ui.multimodal_ui import render_multimodal_tab
+            render_multimodal_tab()
+            st.markdown('</div>', unsafe_allow_html=True)
 
         # ===== 【设置】 =====
         if st.button(

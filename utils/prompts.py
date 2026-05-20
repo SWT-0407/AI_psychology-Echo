@@ -3,7 +3,6 @@ Prompt 管理模块
 集中管理所有与 AI 交互的 system prompt，便于维护和修改。
 """
 import json
-from config import DIMENSIONS
 
 
 def build_dynamic_prompt(current_scores, rag_context=""):

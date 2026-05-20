@@ -1,12 +1,12 @@
 import streamlit as st
-from config import APP_TITLE, APP_ICON, APP_LAYOUT
+from Multimodal.config import APP_TITLE, APP_ICON, APP_LAYOUT
 from utils.session_manager import init_session_state
 from ui.sidebar import render_sidebar
 from ui.diary_page import render_diary_page
 from ui.chat_page import render_chat_page, process_ai_interaction
 from ui.report_page import render_report_page
 from ui.history_page import render_history_detail_page
-from styles.theme import inject_global_css, render_logo, render_hero
+from styles.theme import inject_global_css
 from services.storage_auth import render_login_page
 # ==========================================
 # 0. 页面配置 & Session 初始化

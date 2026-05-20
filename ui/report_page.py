@@ -6,7 +6,7 @@ import random
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from config import DIMENSIONS, DIMENSION_KEYS
+from Multimodal.config import DIMENSIONS, DIMENSION_KEYS
 from models.eval_net import calculate_composite_score
 from utils.status_assets import get_status_assets
 from utils.visualization import draw_radar_chart, configure_chinese_font

@@ -5,11 +5,10 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from config import DIMENSIONS, DIMENSION_KEYS
+from Multimodal.config import DIMENSIONS, DIMENSION_KEYS
 from services.storage_local import load_session, get_all_trend_data
 from utils.visualization import draw_radar_chart, configure_chinese_font
 from utils.status_assets import get_status_assets
-from models.eval_net import calculate_composite_score
 
 
 def render_history_detail_page(session_id):

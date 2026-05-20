@@ -223,7 +223,7 @@ def auto_save_current_session():
     每次完成评估后调用，创建独立存储文件。
     """
     from models.eval_net import calculate_composite_score
-    from config import DIMENSION_KEYS
+    from Multimodal.config import DIMENSION_KEYS
     from utils.status_assets import get_status_assets
 
     session_id = generate_session_id()
