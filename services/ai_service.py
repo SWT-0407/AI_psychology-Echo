@@ -1,27 +1,42 @@
-﻿"""
+"""
 AI 服务模块
-封装与 DeepSeek API 的交互逻辑，包括多轮对话、JSON 解析等。
+封装与 DeepSeek / 千问 API 的交互逻辑
+- DeepSeek: 语言对话和心理评估评分（JSON解析）
+- 千问（通义）: 多模态（图片理解、语音识别、语音合成）
 """
 import json
 import re
 from openai import OpenAI
 import streamlit as st
-from config import API_KEY, API_BASE_URL, MODEL_NAME
+from Multimodal.config import (
+    DEEPSEEK_API_KEY, DEEPSEEK_API_BASE_URL, DEEPSEEK_MODEL_NAME,
+    QWEN_API_KEY, QWEN_API_BASE_URL, QWEN_VISION_MODEL,
+    QWEN_ASR_MODEL, QWEN_TTS_MODEL, QWEN_TTS_VOICE,
+)
 
 
-def get_ai_client():
-    """
-    获取 OpenAI 客户端实例
+# ==========================================
+# 客户端工厂
+# ==========================================
 
-    Returns:
-        OpenAI: 配置好的客户端
-    """
-    return OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
+def get_deepseek_client():
+    """获取 DeepSeek（语言对话）客户端"""
+    return OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_API_BASE_URL)
 
+
+def get_qwen_client():
+    """获取千问（通义，多模态）客户端"""
+    return OpenAI(api_key=QWEN_API_KEY, base_url=QWEN_API_BASE_URL)
+
+
+# ==========================================
+# DeepSeek：语言对话
+# ==========================================
 
 def chat_with_ai(messages, temperature=0.7):
     """
-    与 AI 进行一轮对话
+    与 DeepSeek AI 进行一轮对话（纯语言）
+    用于心理评估的多轮对话评分。
 
     Args:
         messages: list, 消息历史（含 system prompt）
@@ -30,14 +45,208 @@ def chat_with_ai(messages, temperature=0.7):
     Returns:
         str: AI 返回的原始文本
     """
-    client = get_ai_client()
+    client = get_deepseek_client()
     response = client.chat.completions.create(
-        model=MODEL_NAME,
+        model=DEEPSEEK_MODEL_NAME,
         messages=messages,
         temperature=temperature
     )
     return response.choices[0].message.content
 
+
+# ==========================================
+# 千问：图片理解（多模态视觉）
+# ==========================================
+
+def chat_with_vision(image_bytes, messages, temperature=0.7):
+    """
+    使用千问多模态模型分析图片内容
+
+    Args:
+        image_bytes: bytes, 图片二进制数据（JPEG/PNG）
+        messages: list, 消息历史
+        temperature: float, 温度参数
+
+    Returns:
+        str: AI 返回的文本描述
+    """
+    import base64
+
+    client = get_qwen_client()
+    base64_image = base64.b64encode(image_bytes).decode("utf-8")
+
+    # 构建千问兼容的多模态消息格式（与 OpenAI 格式一致）
+    vision_messages = []
+    for msg in messages:
+        if msg["role"] == "user" and msg.get("content"):
+            vision_messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": msg["content"]},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}",
+                            "detail": "low"
+                        }
+                    }
+                ]
+            })
+        else:
+            vision_messages.append(msg)
+
+    response = client.chat.completions.create(
+        model=QWEN_VISION_MODEL,
+        messages=vision_messages,
+        temperature=temperature,
+        max_tokens=500
+    )
+    return response.choices[0].message.content
+
+
+# ==========================================
+# 千问：表情分析（专用版，短 prompt 快速响应）
+# ==========================================
+
+def analyze_facial_expression(image_bytes):
+    """
+    使用千问视觉 API 进行精细化面部情绪分析
+    基于维度情绪模型（Valence-Arousal-Dominance），输出连续量表值，
+    可直接映射到心理评估的 x1~x6 维度。
+
+    Args:
+        image_bytes: bytes, 摄像头拍摄的人脸图片（JPEG）
+
+    Returns:
+        dict: {
+            "emotion": "主情绪标签",
+            "emotion_cn": "主情绪中文名",
+            "valence": 0.0~1.0,     # 愉悦度（0=极负面, 1=极正面）
+            "arousal": 0.0~1.0,      # 唤醒度（0=平静/低迷, 1=激动/紧张）
+            "dominance": 0.0~1.0,    # 支配度（0=无力/被控, 1=掌控/自信）
+            "anxiety": 0.0~1.0,      # 焦虑迹象（0=无焦虑, 1=极度焦虑）
+            "fatigue": 0.0~1.0,      # 疲劳/精力水平（0=精力充沛, 1=极度疲惫）
+            "engagement": 0.0~1.0,   # 参与/回避倾向（0=回避退缩, 1=积极投入）
+            "analysis": "简短描述"
+        }
+        失败时返回含默认值的字典
+    """
+    import base64
+    import json
+    import re
+
+    prompt = (
+        "你是一位专业的面部情绪分析专家。请分析这张照片中人物的面部微表情和整体情绪状态。\n\n"
+        "请严格按照以下量表进行评分（0.0~1.0，保留两位小数）：\n"
+        "1. valence（愉悦度）：0=极度痛苦/悲伤/愤怒, 0.3=轻微负面, 0.5=中性, 0.7=轻微积极, 1.0=极度开心/愉悦\n"
+        "2. arousal（唤醒度）：0=昏昏欲睡/无精打采, 0.3=放松/平静, 0.5=适度警觉, 0.7=紧张/兴奋, 1.0=极度激动/恐慌\n"
+        "3. dominance（支配度）：0=完全无力/被控制/退缩, 0.3=顺从/犹豫, 0.5=中性, 0.7=自信/掌控, 1.0=主导/强势\n"
+        "4. anxiety（焦虑迹象）：0=完全放松无焦虑, 0.3=轻微不安, 0.5=中度焦虑, 0.7=明显焦虑, 1.0=极度惊恐/恐慌\n"
+        "5. fatigue（疲劳/精力）：0=精力充沛/精神饱满, 0.3=轻微疲惫, 0.5=中度疲劳, 0.7=明显疲惫, 1.0=精疲力竭\n"
+        "6. engagement（参与/回避）：0=完全回避/封闭/退缩, 0.3=轻微回避/不自在, 0.5=中性/礼貌性参与, 0.7=愿意互动, 1.0=积极开放/主动投入\n\n"
+        "同时给出一个主情绪标签（从以下选择）："
+        "happy开心, sad悲伤, angry生气, surprised惊讶, fearful恐惧, disgusted厌恶, neutral中性/平静, contempt轻蔑, anxious焦虑, tired疲惫\n\n"
+        "请只返回JSON格式：\n"
+        "{\"emotion\": \"标签英文\", \"emotion_cn\": \"标签中文\", \"valence\": 0.0, \"arousal\": 0.0, "
+        "\"dominance\": 0.0, \"anxiety\": 0.0, \"fatigue\": 0.0, \"engagement\": 0.0, \"analysis\": \"10字内描述\"}"
+    )
+
+    try:
+        client = get_qwen_client()
+        base64_image = base64.b64encode(image_bytes).decode("utf-8")
+
+        response = client.chat.completions.create(
+            model=QWEN_VISION_MODEL,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}",
+                            "detail": "low"
+                        }
+                    }
+                ]
+            }],
+            temperature=0.1,
+            max_tokens=300
+        )
+
+        raw = response.choices[0].message.content
+        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group())
+            return {
+                "emotion": result.get("emotion", "neutral"),
+                "emotion_cn": result.get("emotion_cn", "平静"),
+                "valence": float(result.get("valence", 0.5)),
+                "arousal": float(result.get("arousal", 0.5)),
+                "dominance": float(result.get("dominance", 0.5)),
+                "anxiety": float(result.get("anxiety", 0.0)),
+                "fatigue": float(result.get("fatigue", 0.0)),
+                "engagement": float(result.get("engagement", 0.5)),
+                "analysis": result.get("analysis", ""),
+            }
+    except Exception:
+        pass
+
+    return {
+        "emotion": "neutral", "emotion_cn": "平静",
+        "valence": 0.5, "arousal": 0.5, "dominance": 0.5,
+        "anxiety": 0.0, "fatigue": 0.0, "engagement": 0.5,
+        "analysis": "",
+    }
+
+def transcribe_audio(audio_bytes):
+    """
+    使用千问 ASR 将语音转为文字
+
+    千问 qwen3-asr-flash 兼容 OpenAI Whisper 的 API 格式。
+
+    Args:
+        audio_bytes: bytes, 音频二进制数据
+
+    Returns:
+        str: 识别出的文字
+    """
+    client = get_qwen_client()
+    transcript = client.audio.transcriptions.create(
+        model=QWEN_ASR_MODEL,
+        file=("audio.webm", audio_bytes, "audio/webm")
+    )
+    return transcript.text
+
+
+# ==========================================
+# 千问：语音合成（TTS）
+# ==========================================
+
+def text_to_speech(text):
+    """
+    使用千问 TTS 将文字转为语音
+
+    千问 qwen3-tts-flash 兼容 OpenAI TTS 的 API 格式。
+
+    Args:
+        text: str, 要转为语音的文字
+
+    Returns:
+        bytes: 音频二进制数据（MP3格式）
+    """
+    client = get_qwen_client()
+    response = client.audio.speech.create(
+        model=QWEN_TTS_MODEL,
+        voice=QWEN_TTS_VOICE,
+        input=text
+    )
+    return response.content
+
+
+# ==========================================
+# 通用工具函数
+# ==========================================
 
 def parse_ai_response(raw_result):
     """
@@ -62,16 +271,14 @@ def parse_ai_response(raw_result):
             status = result_data.get("status", "ongoing")
             return reply_text, scores_dict, status
         except json.JSONDecodeError:
-            # JSON 解析失败，回退
             pass
 
-    # 无有效 JSON，直接返回原文
     return raw_result, {}, "ongoing"
 
 
 def generate_report(score, dimension_vals, dim_names, ai_direction, temperature=0.85, rag_context=""):
     """
-    生成深度解析报告
+    使用 DeepSeek 生成深度解析报告
 
     Args:
         score: float, 综合心理指数
@@ -87,15 +294,14 @@ def generate_report(score, dimension_vals, dim_names, ai_direction, temperature=
     from utils.prompts import build_report_prompt
     import requests
 
-    # 传入 rag_context 到 prompt 构建
     prompt = build_report_prompt(score, dimension_vals, dim_names, ai_direction, rag_context=rag_context)
 
     try:
         response = requests.post(
-            f"{API_BASE_URL}/chat/completions",
-            headers={"Authorization": f"Bearer {API_KEY}"},
+            f"{DEEPSEEK_API_BASE_URL}/chat/completions",
+            headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}"},
             json={
-                "model": MODEL_NAME,
+                "model": DEEPSEEK_MODEL_NAME,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": temperature
             }

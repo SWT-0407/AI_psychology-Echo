@@ -1,10 +1,8 @@
-﻿"""
+"""
 对话采集页面（第二阶段）
 渲染多轮对话历史 + 聊天输入框，实现与 AI 的深度交流并动态评分。
 """
-import json
 import streamlit as st
-from config import DIMENSIONS, DIMENSION_KEYS
 from services.ai_service import chat_with_ai, parse_ai_response
 from utils.prompts import build_dynamic_prompt
 from utils.rag_service import search_relevant_knowledge
@@ -99,8 +97,45 @@ def render_chat_page():
             )
 
     # 聊天输入框（底部固定）
+    # ---- 多模态输入区域 ----
+    from services.multimodal_service import MultimodalManager
+    mm = MultimodalManager()
+    
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col1:
+        voice_btn = st.button('🎤 语音输入', key='voice_input_btn', use_container_width=True)
+    with col2:
+        if st.session_state.get('emotion_on', False):
+            em = mm.get_current_emotion()
+            emotion_text = em.get("emotion_cn", "😐 平静")
+            st.markdown(f'<div style="text-align:center;font-size:0.85rem;color:#8aabca;">{emotion_text}</div>', unsafe_allow_html=True)
+    with col3:
+        if st.session_state.get('emotion_on', False):
+            vec = em.get("vector", {})
+            if vec:
+                anxiety = vec.get("anxiety", 0.0)
+                valence = vec.get("valence", 0.5)
+                fatigue = vec.get("fatigue", 0.0)
+                # 用颜色条简单指示风险
+                risk_color = "#4CAF50" if valence > 0.6 and anxiety < 0.3 else "#FF9800" if valence > 0.3 else "#f44336"
+                st.markdown(
+                    f'<div style="text-align:center;font-size:0.75rem;color:{risk_color};font-weight:300;">'
+                    f'V:{valence:.2f} A:{anxiety:.2f} F:{fatigue:.2f}</div>',
+                    unsafe_allow_html=True
+                )
+
+    if voice_btn:
+        with st.spinner('🎤 正在聆听...'):
+            speech_text = mm.listen_speech(timeout=5.0)
+        if speech_text:
+            process_ai_interaction(speech_text)
+            st.rerun()
+        else:
+            st.warning('未检测到语音，请重试')
+
+    # 聊天输入框（底部固定）
     prompt = st.chat_input(
-        placeholder="你可以和我聊聊最近的状态..."
+        placeholder='你可以和我聊聊最近的状态...（或点击🎤语音输入）'
     )
 
     if prompt:

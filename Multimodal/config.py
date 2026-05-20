@@ -8,11 +8,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ==========================================
-# API 配置
+# API 配置 - DeepSeek（语言对话）
 # ==========================================
-API_KEY = os.getenv("API_KEY")
-API_BASE_URL = "https://api.deepseek.com"
-MODEL_NAME = "deepseek-chat"
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+DEEPSEEK_API_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_MODEL_NAME = "deepseek-chat"
+
+# ==========================================
+# API 配置 - 千问（通义，多模态视觉/语音）
+# ==========================================
+QWEN_API_KEY = os.getenv("QWEN_API_KEY")
+QWEN_API_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+QWEN_VISION_MODEL = "qwen-vl-max"         # 视觉理解，也可以用 qwen3.6-plus
+QWEN_ASR_MODEL = "qwen3-asr-flash"        # 语音识别（OpenAI兼容HTTP模式）
+QWEN_TTS_MODEL = "cosyvoice-v3-plus"        # 语音合成（HTTP模式，CosyVoice效果更好）
+QWEN_TTS_VOICE = "longxiaochun"              # 音色：longxiaochun（知性女声）
 
 # ==========================================
 # 维度定义
@@ -43,3 +53,4 @@ APP_LAYOUT = "wide"
 
 # 综合评分满分
 MAX_SCORE = 100
+
