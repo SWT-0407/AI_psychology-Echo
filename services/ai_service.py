@@ -113,6 +113,7 @@ def analyze_facial_expression(image_bytes):
     使用千问视觉 API 进行精细化面部情绪分析
     基于维度情绪模型（Valence-Arousal-Dominance），输出连续量表值，
     可直接映射到心理评估的 x1~x6 维度。
+    提示词模板和维度量表从 config.py 中读取，便于调参。
 
     Args:
         image_bytes: bytes, 摄像头拍摄的人脸图片（JPEG）
@@ -121,35 +122,29 @@ def analyze_facial_expression(image_bytes):
         dict: {
             "emotion": "主情绪标签",
             "emotion_cn": "主情绪中文名",
-            "valence": 0.0~1.0,     # 愉悦度（0=极负面, 1=极正面）
-            "arousal": 0.0~1.0,      # 唤醒度（0=平静/低迷, 1=激动/紧张）
-            "dominance": 0.0~1.0,    # 支配度（0=无力/被控, 1=掌控/自信）
-            "anxiety": 0.0~1.0,      # 焦虑迹象（0=无焦虑, 1=极度焦虑）
-            "fatigue": 0.0~1.0,      # 疲劳/精力水平（0=精力充沛, 1=极度疲惫）
-            "engagement": 0.0~1.0,   # 参与/回避倾向（0=回避退缩, 1=积极投入）
+            "valence": 0.0~1.0,
+            "arousal": 0.0~1.0,
+            "dominance": 0.0~1.0,
+            "anxiety": 0.0~1.0,
+            "fatigue": 0.0~1.0,
+            "engagement": 0.0~1.0,
             "analysis": "简短描述"
         }
-        失败时返回含默认值的字典
     """
     import base64
     import json
     import re
 
-    prompt = (
-        "你是一位专业的面部情绪分析专家。请分析这张照片中人物的面部微表情和整体情绪状态。\n\n"
-        "请严格按照以下量表进行评分（0.0~1.0，保留两位小数）：\n"
-        "1. valence（愉悦度）：0=极度痛苦/悲伤/愤怒, 0.3=轻微负面, 0.5=中性, 0.7=轻微积极, 1.0=极度开心/愉悦\n"
-        "2. arousal（唤醒度）：0=昏昏欲睡/无精打采, 0.3=放松/平静, 0.5=适度警觉, 0.7=紧张/兴奋, 1.0=极度激动/恐慌\n"
-        "3. dominance（支配度）：0=完全无力/被控制/退缩, 0.3=顺从/犹豫, 0.5=中性, 0.7=自信/掌控, 1.0=主导/强势\n"
-        "4. anxiety（焦虑迹象）：0=完全放松无焦虑, 0.3=轻微不安, 0.5=中度焦虑, 0.7=明显焦虑, 1.0=极度惊恐/恐慌\n"
-        "5. fatigue（疲劳/精力）：0=精力充沛/精神饱满, 0.3=轻微疲惫, 0.5=中度疲劳, 0.7=明显疲惫, 1.0=精疲力竭\n"
-        "6. engagement（参与/回避）：0=完全回避/封闭/退缩, 0.3=轻微回避/不自在, 0.5=中性/礼貌性参与, 0.7=愿意互动, 1.0=积极开放/主动投入\n\n"
-        "同时给出一个主情绪标签（从以下选择）："
-        "happy开心, sad悲伤, angry生气, surprised惊讶, fearful恐惧, disgusted厌恶, neutral中性/平静, contempt轻蔑, anxious焦虑, tired疲惫\n\n"
-        "请只返回JSON格式：\n"
-        "{\"emotion\": \"标签英文\", \"emotion_cn\": \"标签中文\", \"valence\": 0.0, \"arousal\": 0.0, "
-        "\"dominance\": 0.0, \"anxiety\": 0.0, \"fatigue\": 0.0, \"engagement\": 0.0, \"analysis\": \"10字内描述\"}"
+    # 从 config 动态获取维度量表描述
+    from config import (
+        EMOTION_ANALYSIS_PROMPT,
+        EMOTION_ANALYSIS_TEMPERATURE,
+        EMOTION_ANALYSIS_MAX_TOKENS,
+        build_face_scale_description,
     )
+
+    scale_desc = build_face_scale_description()
+    prompt = EMOTION_ANALYSIS_PROMPT.format(face_scale_desc=scale_desc)
 
     try:
         client = get_qwen_client()
@@ -170,8 +165,8 @@ def analyze_facial_expression(image_bytes):
                     }
                 ]
             }],
-            temperature=0.1,
-            max_tokens=300
+            temperature=EMOTION_ANALYSIS_TEMPERATURE,
+            max_tokens=EMOTION_ANALYSIS_MAX_TOKENS
         )
 
         raw = response.choices[0].message.content
