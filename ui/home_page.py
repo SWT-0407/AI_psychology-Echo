@@ -116,13 +116,13 @@ def render_home_page() -> None:
             st.session_state.page = "psytest"
             st.rerun()
     with c2:
-        _feature_card("🗣️", "AI树洞", "温暖柔和的聊天空间，每条 AI 回复都可以五星评价。")
+        _feature_card("🗣️", "AI树洞", "支持语音输入和表情识别的温暖聊天空间，每条 AI 回复都可以五星评价。")
         if st.button("进入 AI 树洞", use_container_width=True, key="go_treehole"):
             st.session_state.page = "treehole"
             st.rerun()
     with c3:
-        _feature_card("👥", "虚拟伴侣", "创建自定义角色，像联系人一样点开后继续聊天。")
-        if st.button("进入虚拟伴侣", use_container_width=True, key="go_companion"):
+        _feature_card("👥", "虚拟角色", "创建自定义角色，支持语音输入和表情识别，像联系人一样继续聊天。")
+        if st.button("进入虚拟角色", use_container_width=True, key="go_companion"):
             st.session_state.page = "companion"
             st.rerun()
 

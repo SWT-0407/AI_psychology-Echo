@@ -58,7 +58,7 @@ def chat_with_ai(messages, temperature=0.7):
 # 千问：图片理解（多模态视觉）
 # ==========================================
 
-def chat_with_vision(image_bytes, messages, temperature=0.7):
+def chat_with_vision(image_bytes, messages, temperature=0.7, detail="high"):
     """
     使用千问多模态模型分析图片内容
 
@@ -136,7 +136,7 @@ def analyze_facial_expression(image_bytes, detail="low"):
     import re
 
     # 从 config 动态获取维度量表描述
-    from config import (
+    from Multimodal.config import (
         EMOTION_ANALYSIS_PROMPT,
         EMOTION_ANALYSIS_TEMPERATURE,
         EMOTION_ANALYSIS_MAX_TOKENS,
@@ -176,12 +176,13 @@ def analyze_facial_expression(image_bytes, detail="low"):
             return {
                 "emotion": result.get("emotion", "neutral"),
                 "emotion_cn": result.get("emotion_cn", "平静"),
-                "valence": float(result.get("valence", 0.5)),
-                "arousal": float(result.get("arousal", 0.5)),
-                "dominance": float(result.get("dominance", 0.5)),
-                "anxiety": float(result.get("anxiety", 0.0)),
-                "fatigue": float(result.get("fatigue", 0.0)),
-                "engagement": float(result.get("engagement", 0.5)),
+                "valence": _clamp01(result.get("valence", 0.5)),
+                "arousal": _clamp01(result.get("arousal", 0.5)),
+                "dominance": _clamp01(result.get("dominance", 0.5)),
+                "anxiety": _clamp01(result.get("anxiety", 0.0)),
+                "fatigue": _clamp01(result.get("fatigue", 0.0)),
+                "engagement": _clamp01(result.get("engagement", 0.5)),
+                "confidence": _clamp01(result.get("confidence", 0.5)),
                 "analysis": result.get("analysis", ""),
             }
     except Exception:
@@ -191,10 +192,19 @@ def analyze_facial_expression(image_bytes, detail="low"):
         "emotion": "neutral", "emotion_cn": "平静",
         "valence": 0.5, "arousal": 0.5, "dominance": 0.5,
         "anxiety": 0.0, "fatigue": 0.0, "engagement": 0.5,
+        "confidence": 0.0,
         "analysis": "",
     }
 
-def transcribe_audio(audio_bytes):
+
+def _clamp01(value, default=0.5):
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except Exception:
+        return default
+
+
+def transcribe_audio(audio_bytes, filename="audio.webm", mime_type="audio/webm"):
     """
     使用千问 ASR 将语音转为文字
 
@@ -209,7 +219,7 @@ def transcribe_audio(audio_bytes):
     client = get_qwen_client()
     transcript = client.audio.transcriptions.create(
         model=QWEN_ASR_MODEL,
-        file=("audio.webm", audio_bytes, "audio/webm")
+        file=(filename, audio_bytes, mime_type)
     )
     return transcript.text
 

@@ -5,6 +5,7 @@
 表情识别使用 千问视觉 API（qwen-vl-max），比本地 Haar/DeepFace 更准确。
 """
 import io
+from collections import Counter, deque
 
 
 class SpeechRecognizer:
@@ -73,11 +74,12 @@ class EmotionDetector:
     EMOTION_CN_MAP = {
         'happy': '😊 开心', 'sad': '😢 悲伤', 'angry': '😠 生气',
         'surprise': '😮 惊讶', 'fear': '😨 恐惧', 'disgust': '🤢 厌恶',
+        'surprised': '😮 惊讶', 'fearful': '😨 恐惧', 'disgusted': '🤢 厌恶',
         'neutral': '😐 平静', 'contempt': '😏 轻蔑', 'anxious': '😰 焦虑',
         'tired': '😴 疲惫'
     }
 
-    def __init__(self, camera_id=0, interval=3.0):
+    def __init__(self, camera_id=0, interval=2.0):
         """
         Args:
             camera_id: int, 摄像头编号
@@ -94,7 +96,9 @@ class EmotionDetector:
             'anxiety': 0.0, 'fatigue': 0.0, 'engagement': 0.5,
         }
         self.last_detect_time = 0
+        self._last_face_time = 0
         self.frame = None
+        self._face_samples = deque(maxlen=5)
         self._lock = None
         self._cv2_available = False
         self._init_imports()
@@ -145,7 +149,8 @@ class EmotionDetector:
         """
         摄像头捕获循环：
         - 持续读取帧，保存最新一帧
-        - 先用 OpenCV Haar Cascade 检测人脸区域，裁切后发送给千问 API
+        - 先用 OpenCV Haar Cascade 检测人脸区域，缓存最近几帧的人脸
+        - 使用最近多帧融合后的结果，减少眨眼、模糊、瞬时角度造成的误判
         - 按 interval 间隔调用
         """
         import cv2
@@ -169,55 +174,128 @@ class EmotionDetector:
             with self._lock:
                 self.frame = frame.copy()
 
+            face_img = self._extract_face(frame, face_cascade)
+            if face_img is not None:
+                self._face_samples.append(face_img)
+                self._last_face_time = time.time()
+
             now = time.time()
             if now - self.last_detect_time >= self.interval:
                 self.last_detect_time = now
-
-                # 尝试裁切人脸区域（仅发送人脸给 API，减少干扰）
-                face_img = frame
-                if face_cascade is not None:
-                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    faces = face_cascade.detectMultiScale(
-                        gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100)
-                    )
-                    if len(faces) > 0:
-                        # 取最大的人脸
-                        (x, y, w, h) = max(faces, key=lambda f: f[2] * f[3])
-                        # 适当扩大裁切范围（上下左右各扩 20%）
-                        pad_x = int(w * 0.2)
-                        pad_y = int(h * 0.2)
-                        x1 = max(0, x - pad_x)
-                        y1 = max(0, y - pad_y)
-                        x2 = min(frame.shape[1], x + w + pad_x)
-                        y2 = min(frame.shape[0], y + h + pad_y)
-                        face_img = frame[y1:y2, x1:x2]
-
+                if self._last_face_time and now - self._last_face_time > self.interval * 2.5:
+                    self._face_samples.clear()
+                samples = list(self._face_samples) or [frame]
                 # 分析表情
-                self._analyze_emotion(face_img)
+                self._analyze_emotion(samples)
 
             time.sleep(0.03)
 
-    def _analyze_emotion(self, frame):
+    def _extract_face(self, frame, face_cascade):
+        import cv2
+
+        if face_cascade is None:
+            return frame
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.equalizeHist(gray)
+        faces = face_cascade.detectMultiScale(
+            gray, scaleFactor=1.08, minNeighbors=4, minSize=(90, 90)
+        )
+        if len(faces) == 0:
+            return None
+
+        x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+        pad_x = int(w * 0.28)
+        pad_top = int(h * 0.34)
+        pad_bottom = int(h * 0.22)
+        x1 = max(0, x - pad_x)
+        y1 = max(0, y - pad_top)
+        x2 = min(frame.shape[1], x + w + pad_x)
+        y2 = min(frame.shape[0], y + h + pad_bottom)
+        face = frame[y1:y2, x1:x2]
+        if face.size == 0:
+            return None
+        return face
+
+    def _make_contact_sheet(self, frames):
+        import cv2
+
+        prepared = []
+        for frame in frames[-5:]:
+            if frame is None or getattr(frame, "size", 0) == 0:
+                continue
+            resized = cv2.resize(frame, (256, 256), interpolation=cv2.INTER_AREA)
+            prepared.append(resized)
+        if not prepared:
+            return None
+        return cv2.hconcat(prepared) if len(prepared) > 1 else prepared[0]
+
+    def _analyze_emotion(self, frames):
         """
-        将帧编码为高质量 JPEG → 调用千问 API（high detail）分析
+        将最近多帧编码为横向拼图 → 调用千问 API（high detail）分析 → 平滑融合
         """
         import cv2
         try:
+            if not isinstance(frames, list):
+                frames = [frames]
+            sheet = self._make_contact_sheet(frames)
+            if sheet is None:
+                return
+
             # 高质量 JPEG 编码
-            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            _, buffer = cv2.imencode('.jpg', sheet, [cv2.IMWRITE_JPEG_QUALITY, 92])
             image_bytes = io.BytesIO(buffer.tobytes()).getvalue()
 
             from services.ai_service import analyze_facial_expression
-            # 尝试分析，如果失败则重试一次
-            result = None
-            for attempt in range(2):
-                result = analyze_facial_expression(image_bytes, detail="high")
-                if result.get("emotion") != "neutral" or attempt == 1:
-                    break
+            result = analyze_facial_expression(image_bytes, detail="high")
 
             if result is None:
                 return
 
+            self._apply_smoothed_result(result)
+
+        except Exception:
+            pass
+
+    def _apply_smoothed_result(self, result):
+        confidence = float(result.get("confidence", 0.5) or 0.5)
+        if confidence < 0.25:
+            return
+        self.confidence = confidence
+
+        alpha = 0.65 if confidence >= 0.6 else 0.45
+        current = getattr(self, "_emotion_vector", {})
+        new_vector = {}
+        for key, default in {
+            "valence": 0.5,
+            "arousal": 0.5,
+            "dominance": 0.5,
+            "anxiety": 0.0,
+            "fatigue": 0.0,
+            "engagement": 0.5,
+        }.items():
+            old = float(current.get(key, default))
+            new = float(result.get(key, default))
+            new_vector[key] = round(old * (1 - alpha) + new * alpha, 3)
+
+        self._emotion_vector = new_vector
+
+        if not hasattr(self, "_emotion_votes"):
+            self._emotion_votes = deque(maxlen=4)
+        self._emotion_votes.append(result.get("emotion", "neutral"))
+        votes = Counter(self._emotion_votes)
+        self.current_emotion = votes.most_common(1)[0][0]
+
+        emoji_cn = self.EMOTION_CN_MAP.get(self.current_emotion, '😐 平静')
+        analysis = result.get("analysis", "")
+        parts = [emoji_cn]
+        if analysis:
+            parts.append(analysis)
+        parts.append(f"置信度 {confidence:.2f}")
+        self.current_emotion_cn = " | ".join(parts)
+
+    def _legacy_apply_result(self, result):
+        try:
             self.current_emotion = result.get("emotion", "neutral")
             emoji_cn = self.EMOTION_CN_MAP.get(self.current_emotion, '😐 平静')
             analysis = result.get("analysis", "")
@@ -249,6 +327,7 @@ class EmotionDetector:
                 'valence': 0.5, 'arousal': 0.5, 'dominance': 0.5,
                 'anxiety': 0.0, 'fatigue': 0.0, 'engagement': 0.5,
             }),
+            'confidence': getattr(self, 'confidence', 0.5),
         }
 
     def get_frame(self):
@@ -274,6 +353,15 @@ class MultimodalManager:
 
     def listen_speech(self, timeout=5.0):
         return self.speech.listen(timeout=timeout)
+
+    def transcribe_audio(self, audio_bytes, filename="audio.webm", mime_type="audio/webm"):
+        self.last_speech_error = ""
+        try:
+            from services.ai_service import transcribe_audio
+            return transcribe_audio(audio_bytes, filename=filename, mime_type=mime_type)
+        except Exception as exc:
+            self.last_speech_error = str(exc)
+            return ""
 
     def speak_text(self, text):
         self.tts.speak(text)

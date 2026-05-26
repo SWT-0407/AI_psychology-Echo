@@ -19,6 +19,7 @@ from services.app_storage import (
     save_history_record,
 )
 from services.local_ai import generate_reply, score_messages
+from ui.multimodal_controls import build_multimodal_prompt, render_multimodal_controls
 
 
 COMPANION_CSS = """
@@ -31,7 +32,8 @@ COMPANION_CSS = """
 }
 [data-testid="stVerticalBlock"] { gap: 0; }
 [data-testid="stHorizontalBlock"] { gap: 0 !important; }
-.wx-page {
+.wx-page,
+.st-key-wx_page {
     height: 100vh;
     min-height: 760px;
     background: #f5f5f5;
@@ -51,7 +53,8 @@ COMPANION_CSS = """
     font-size: 20px;
     box-sizing: border-box;
 }
-.wx-layout {
+.wx-layout,
+.st-key-wx_layout {
     height: calc(100vh - 36px);
     min-height: 724px;
     display: grid;
@@ -732,9 +735,39 @@ def _render_selected_actions(selected: Optional[Dict[str, Any]]) -> None:
             st.rerun()
 
 
+def _submit_companion_message(selected: Dict[str, Any], prompt: str, emotion=None) -> None:
+    prompt = str(prompt or "").strip()
+    if not prompt:
+        return
+
+    messages = load_companion_messages(selected["id"])
+    messages.append(make_message("user", prompt))
+    scores = score_messages(messages)
+    selected["intimacy"] = int(selected.get("intimacy") or 0) + 1
+    selected["unread"] = 0
+    _touch_character(selected, unread_delta=0)
+
+    st.session_state.typing_character_id = selected["id"]
+    with st.spinner(f"{selected.get('name', '对方')} 正在输入..."):
+        time.sleep(0.8)
+        ai_prompt = build_multimodal_prompt(prompt, emotion)
+        reply = generate_reply("companion", ai_prompt, messages, scores, selected)
+    st.session_state.typing_character_id = None
+
+    messages.append(make_message("assistant", reply))
+    save_companion_messages(selected["id"], messages)
+    _touch_character(selected, unread_delta=0)
+    save_history_record("companion", messages, scores, title=f"与 {selected.get('name', '新朋友')} 的聊天")
+    st.rerun()
+
+
 def _render_message_form(selected: Optional[Dict[str, Any]]) -> None:
     if not selected:
         return
+
+    multimodal = render_multimodal_controls(f"companion_{selected['id']}")
+    if multimodal.get("voice_text"):
+        _submit_companion_message(selected, multimodal["voice_text"], multimodal.get("emotion"))
 
     with st.form(f"send_companion_{selected['id']}", clear_on_submit=True):
         text_col, send_col = st.columns([8, 1])
@@ -750,24 +783,7 @@ def _render_message_form(selected: Optional[Dict[str, Any]]) -> None:
             submitted = st.form_submit_button("发送", use_container_width=True)
 
     if submitted and prompt.strip():
-        messages = load_companion_messages(selected["id"])
-        messages.append(make_message("user", prompt.strip()))
-        scores = score_messages(messages)
-        selected["intimacy"] = int(selected.get("intimacy") or 0) + 1
-        selected["unread"] = 0
-        _touch_character(selected, unread_delta=0)
-
-        st.session_state.typing_character_id = selected["id"]
-        with st.spinner(f"{selected.get('name', '对方')} 正在输入..."):
-            time.sleep(0.8)
-            reply = generate_reply("companion", prompt.strip(), messages, scores, selected)
-        st.session_state.typing_character_id = None
-
-        messages.append(make_message("assistant", reply))
-        save_companion_messages(selected["id"], messages)
-        _touch_character(selected, unread_delta=0)
-        save_history_record("companion", messages, scores, title=f"与 {selected.get('name', '新朋友')} 的聊天")
-        st.rerun()
+        _submit_companion_message(selected, prompt, multimodal.get("emotion"))
 
 
 def render_companion_page() -> None:
@@ -777,11 +793,15 @@ def render_companion_page() -> None:
     characters = load_characters()
     selected = _handle_query_selection(characters)
 
-    st.markdown('<div class="wx-window-bar">⌖ － □ ×</div>', unsafe_allow_html=True)
-    left, right = st.columns([0.245, 0.755], gap="small")
-    with left:
-        _render_sidebar(characters, selected)
-    with right:
-        _render_chat_messages(selected)
-        _render_selected_actions(selected)
-        _render_message_form(selected)
+    page_container = st.container(key="wx_page")
+    with page_container:
+        st.markdown('<div class="wx-window-bar">⌖ － □ ×</div>', unsafe_allow_html=True)
+        layout_container = st.container(key="wx_layout")
+        with layout_container:
+            left, right = st.columns([0.245, 0.755], gap="small")
+            with left:
+                _render_sidebar(characters, selected)
+            with right:
+                _render_chat_messages(selected)
+                _render_selected_actions(selected)
+                _render_message_form(selected)

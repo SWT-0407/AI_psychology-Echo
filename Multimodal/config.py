@@ -31,17 +31,18 @@ QWEN_TTS_VOICE = "longxiaochun"            # 音色：longxiaochun（知性女�
 # 情绪分析 prompt 模板
 # {face_scale_desc} 会被替换为维度量表描述
 EMOTION_ANALYSIS_PROMPT = (
-    "你是一位专业的面部情绪分析专家。请分析这张照片中人物的面部微表情和整体情绪状态。\n\n"
+    "你是一位专业的面部情绪分析专家。图片可能是一位用户最近几帧人脸的横向拼图。"
+    "请综合多帧中的稳定表情，不要被眨眼、单帧模糊或短暂嘴型误导。\n\n"
     "请严格按照以下量表进行评分（0.0~1.0，保留两位小数）：\n"
     "{face_scale_desc}\n\n"
-    "同时给出一个主情绪标签（从以下选择）："
-    "happy开心, sad悲伤, angry生气, surprised惊讶, fearful恐惧, disgusted厌恶, "
-    "neutral中性/平静, contempt轻蔑, anxious焦虑, tired疲惫\n\n"
+    "同时给出一个主情绪标签（必须从以下英文标签中选择）："
+    "happy, sad, angry, surprise, fear, disgust, neutral, contempt, anxious, tired\n"
+    "如果面部区域不清晰或无法判断，请将 confidence 设为 0.3 以下。\n\n"
     "请只返回JSON格式：\n"
     "{{\"emotion\": \"标签英文\", \"emotion_cn\": \"标签中文\", "
     "\"valence\": 0.0, \"arousal\": 0.0, "
     "\"dominance\": 0.0, \"anxiety\": 0.0, \"fatigue\": 0.0, \"engagement\": 0.0, "
-    "\"analysis\": \"10字内描述\"}}"
+    "\"confidence\": 0.0, \"analysis\": \"10字内描述\"}}"
 )
 
 # 情绪维度量表定义（每个维度名称、含义、映射到哪个心理评估维度）

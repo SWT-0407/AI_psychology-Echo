@@ -1,4 +1,5 @@
 import streamlit as st
+from ui.multimodal_controls import _transcribe_new_audio
 
 def get_multimodal_manager():
     from services.multimodal_service import MultimodalManager
@@ -15,7 +16,10 @@ def render_multimodal_tab():
     st.markdown("### 🎤 语音")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🎤 测试麦克风", use_container_width=True):
+        if hasattr(st, "audio_input"):
+            audio_file = st.audio_input("测试语音", key="sidebar_audio_test")
+            _transcribe_new_audio("sidebar_audio_test", mm, audio_file)
+        elif st.button("🎤 测试麦克风", use_container_width=True):
             with st.spinner("聆听中..."):
                 text = mm.listen_speech(timeout=3.0)
             if text:
