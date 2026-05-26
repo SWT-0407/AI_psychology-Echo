@@ -62,14 +62,37 @@ TREEHOLE_CSS = """
     word-break: break-word;
     white-space: pre-wrap;
 }
-.rating-line { margin-top: 8px; }
-.rating-line .stButton > button {
-    min-height: 30px;
-    padding: 0 !important;
-    border: 0 !important;
-    background: transparent !important;
-    color: #df9a35 !important;
-    font-size: 22px !important;
+.rating-line {
+    max-width: 960px;
+    margin: 8px auto 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #b58391;
+    font-size: 13px;
+}
+.rating-stars {
+    display: inline-flex;
+    align-items: center;
+    gap: 13px;
+}
+.rating-stars a {
+    text-decoration: none;
+    color: #ffd34e;
+    font-size: 34px;
+    line-height: 1;
+    text-shadow:
+        0 2px 0 rgba(245, 181, 44, .3),
+        0 4px 10px rgba(255, 199, 55, .28);
+    transition: transform .15s ease, filter .15s ease;
+}
+.rating-stars a.empty {
+    color: #ffe7a2;
+    opacity: .72;
+}
+.rating-stars a:hover {
+    transform: translateY(-2px) scale(1.08);
+    filter: saturate(1.18);
 }
 .stButton > button {
     border-radius: 12px !important;
@@ -77,6 +100,36 @@ TREEHOLE_CSS = """
     background: #ffffff !important;
     color: #875968 !important;
     font-weight: 800 !important;
+}
+div[data-testid="stForm"] {
+    max-width: 960px;
+    margin: -28px auto 14px auto;
+    padding: 16px 18px 18px !important;
+    border: 1px solid rgba(220,154,169,.28) !important;
+    border-radius: 8px !important;
+    background: rgba(255, 252, 246, .82) !important;
+    box-shadow: 0 14px 30px rgba(133, 82, 92, .08) !important;
+}
+.stTextArea textarea {
+    min-height: 140px !important;
+    border: 0 !important;
+    border-radius: 4px !important;
+    background:
+        repeating-linear-gradient(
+            transparent 0,
+            transparent 33px,
+            rgba(241, 182, 194, .55) 34px,
+            transparent 35px
+        ),
+        rgba(255,255,255,.18) !important;
+    color: #6d4d58 !important;
+    font-family: "Segoe Print", "Comic Sans MS", "Kaiti SC", "KaiTi", cursive !important;
+    font-size: 20px !important;
+    line-height: 35px !important;
+    box-shadow: none !important;
+}
+.stTextArea textarea::placeholder {
+    color: rgba(183, 129, 142, .68) !important;
 }
 </style>
 """
@@ -104,14 +157,15 @@ def _message_rating(idx: int, msg) -> None:
     role = msg.get("role", "assistant")
     if role == "assistant" and idx > 0:
         current = int(msg.get("rating") or 0)
-        cols = st.columns([1, 1, 1, 1, 1, 6])
+        stars = []
         for star in range(1, 6):
-            with cols[star - 1]:
-                label = "★" if star <= current else "☆"
-                if st.button(label, key=f"tree_rating_{idx}_{star}", help=f"{star} 星"):
-                    st.session_state.treehole_messages[idx]["rating"] = star
-                    save_treehole_messages(st.session_state.treehole_messages)
-                    st.rerun()
+            klass = "" if star <= current else "empty"
+            stars.append(f'<a class="{klass}" href="?tree_rating={idx}:{star}" title="{star} 星">★</a>')
+        st.markdown(
+            f'<div class="rating-line"><span>这次日记回应：</span>'
+            f'<span class="rating-stars">{"".join(stars)}</span></div>',
+            unsafe_allow_html=True,
+        )
 
 
 def _render_history(messages) -> None:
@@ -124,12 +178,10 @@ def _render_history(messages) -> None:
         content = escape(str(msg.get("content", ""))).replace("\n", "<br/>")
         time_text = escape(message_time(msg))
         lines.append(
-            f"""
-            <div class="tree-history-line">
-                <div class="tree-history-role">{role}<br/><span style="font-size:11px;font-weight:400;">{time_text}</span></div>
-                <div class="tree-history-text">{content}</div>
-            </div>
-            """
+            f'<div class="tree-history-line">'
+            f'<div class="tree-history-role">{role}<br/><span style="font-size:11px;font-weight:400;">{time_text}</span></div>'
+            f'<div class="tree-history-text">{content}</div>'
+            f'</div>'
         )
     lines.append("</div>")
     st.markdown("".join(lines), unsafe_allow_html=True)
@@ -137,8 +189,9 @@ def _render_history(messages) -> None:
 
 def _render_diary_component(messages) -> None:
     bg_url = _treehole_bg_data_url()
-    latest_user = _latest_message(messages, "user")
-    latest_reply = _latest_message(messages, "assistant")
+    show_latest_reply = bool(st.session_state.get("treehole_show_latest_reply"))
+    latest_user = _latest_message(messages, "user") if show_latest_reply else ""
+    latest_reply = _latest_message(messages, "assistant") if show_latest_reply else ""
     today = escape(datetime.now().strftime("%Y / %m / %d"))
     fallback_bg = "linear-gradient(135deg, #fffdf7 0%, #fffaf2 100%)"
     background = f"url('{bg_url}')" if bg_url else fallback_bg
@@ -174,25 +227,21 @@ def _render_diary_component(messages) -> None:
           font-size: clamp(13px, 1.35vw, 18px);
           font-weight: 700;
         }}
-        textarea {{
+        .ghost-writing {{
           position: absolute;
           left: 9.6%;
           top: 20.2%;
           width: 37.1%;
           height: 66.4%;
-          border: 0;
-          outline: 0;
-          resize: none;
           overflow: auto;
-          background: transparent;
-          color: #6d4d58;
+          color: rgba(109, 77, 88, .58);
           font-family: "Segoe Print", "Comic Sans MS", "Kaiti SC", "KaiTi", cursive;
           font-size: clamp(15px, 1.75vw, 23px);
           line-height: 2.03;
           padding: 0 1.2%;
-          caret-color: #b26478;
+          white-space: pre-wrap;
+          word-break: break-word;
         }}
-        textarea::placeholder {{ color: rgba(183, 129, 142, .66); }}
         .reply {{
           position: absolute;
           left: 54.8%;
@@ -255,7 +304,7 @@ def _render_diary_component(messages) -> None:
           to {{ opacity: 1; clip-path: inset(0 0 0 0); }}
         }}
         @media (max-width: 720px) {{
-          textarea {{ line-height: 1.65; }}
+          .ghost-writing {{ line-height: 1.65; }}
           .hint {{ display: none; }}
           button {{ padding: 7px 14px; font-size: 13px; }}
         }}
@@ -264,35 +313,10 @@ def _render_diary_component(messages) -> None:
     <body>
       <div class="book">
         <div class="date">Date. {today}</div>
-        <textarea id="entry" placeholder="把想说的话写在这里..."></textarea>
-        <div class="reply {'empty' if not latest_reply else ''}">{escape(latest_reply) if latest_reply else '写完后，日记会在这里回应你。'}</div>
+        <div class="ghost-writing">{escape(latest_user)}</div>
+        <div class="reply {'empty' if not latest_reply else ''}">{escape(latest_reply) if latest_reply else ' '}</div>
         <div class="last-entry">{'上一句：' + escape(latest_user) if latest_user else ''}</div>
-        <div class="actions">
-          <button id="submit" type="button">确定</button>
-          <span class="hint">墨迹会留在纸上，日记会慢慢回信</span>
-        </div>
       </div>
-      <script>
-        const submit = document.getElementById("submit");
-        const entry = document.getElementById("entry");
-        const sendEntry = () => {{
-          const text = entry.value.trim();
-          if (!text) {{
-            entry.focus();
-            return;
-          }}
-          const params = new URLSearchParams(window.parent.location.search);
-          params.set("treehole_submit", text);
-          window.parent.location.search = params.toString();
-        }};
-        submit.addEventListener("click", sendEntry);
-        entry.addEventListener("keydown", (event) => {{
-          if (event.ctrlKey && event.key === "Enter") {{
-            event.preventDefault();
-            sendEntry();
-          }}
-        }});
-      </script>
     </body>
     </html>
     """
@@ -309,6 +333,7 @@ def _submit_treehole_message(prompt: str, emotion=None) -> None:
     ai_prompt = build_multimodal_prompt(prompt, emotion)
     messages.append(make_message("assistant", generate_reply("treehole", ai_prompt, messages, scores)))
     st.session_state.treehole_messages = messages
+    st.session_state.treehole_show_latest_reply = True
     save_treehole_messages(messages)
     save_history_record("treehole", messages, scores, title="AI 树洞聊天")
     st.rerun()
@@ -316,6 +341,20 @@ def _submit_treehole_message(prompt: str, emotion=None) -> None:
 
 def render_treehole_page() -> None:
     _inject_css()
+    rating = st.query_params.get("tree_rating")
+    if rating:
+        try:
+            idx_text, star_text = str(rating).split(":", 1)
+            idx = int(idx_text)
+            star = int(star_text)
+            if 0 <= idx < len(st.session_state.get("treehole_messages", [])) and 1 <= star <= 5:
+                st.session_state.treehole_messages[idx]["rating"] = star
+                save_treehole_messages(st.session_state.treehole_messages)
+        except ValueError:
+            pass
+        st.query_params.clear()
+        st.rerun()
+
     submitted = st.query_params.get("treehole_submit")
     if submitted:
         st.query_params.clear()
@@ -336,6 +375,17 @@ def render_treehole_page() -> None:
 
     messages = st.session_state.get("treehole_messages", [])
     _render_diary_component(messages)
+
+    with st.form("treehole_diary_form", clear_on_submit=True):
+        prompt = st.text_area(
+            "写在日记左页",
+            key="treehole_native_entry",
+            placeholder="把想说的话写在这里...",
+            label_visibility="collapsed",
+        )
+        form_submitted = st.form_submit_button("确定", use_container_width=True)
+    if form_submitted:
+        _submit_treehole_message(prompt)
 
     for idx, msg in enumerate(messages):
         _message_rating(idx, msg)
