@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 
 from services.app_storage import init_runtime_state
 from services.storage_auth import render_login_page
@@ -14,6 +14,28 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+# 隐藏 Streamlit 自带顶栏、菜单、Deploy 按钮和页脚
+hide_streamlit_style = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stApp { margin-top: -3rem; }
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# 隐藏 Streamlit 自带顶栏、菜单、Deploy 按钮和页脚
+hide_streamlit_style = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stApp { margin-top: -3rem; }
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 init_runtime_state()
 
