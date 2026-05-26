@@ -1,4 +1,4 @@
-"""
+﻿"""
 Prompt 管理模块
 集中管理所有与 AI 交互的 system prompt，便于维护和修改。
 """
@@ -6,18 +6,30 @@ import json
 from config import DIMENSIONS
 
 
-def build_dynamic_prompt(current_scores):
+def build_dynamic_prompt(current_scores, knowledge_context=""):
     """
     构建多轮交互评估的 System Prompt（日记模式）
 
     Args:
         current_scores: dict, 当前各维度评分 {"x1": int/None, ...}
+        knowledge_context: str, 从知识库检索到的相关心理学知识（RAG）
 
     Returns:
         str: 完整的 system prompt
     """
+    # 知识上下文注入（如果有）
+    knowledge_section = ""
+    if knowledge_context:
+        knowledge_section = f"""
+
+【知识参考】
+以下是从专业心理学书籍中检索到的相关内容，请将其融入你的回复中，使你的共情和建议更加专业、有依据：
+{knowledge_context}
+
+"""
+
     prompt = f"""
-你是一个针对大学生的心理状态倾听助手。你的任务是通过多轮自然的对话，评估用户的六个心理维度分数（0到10之间的整数，分数越高代表越积极健康，分数越低代表风险越高）。
+你是一个针对大学生的心理状态倾听助手。你的任务是通过多轮自然的对话，评估用户的六个心理维度分数（0到10之间的整数，分数越高代表越积极健康，分数越低代表风险越高）。{knowledge_section}
 六个维度如下：
 x1(情绪状态): 0(严重抑郁/负面) -> 10(积极/平稳)
 x2(焦虑与压力): 0(极度焦虑/压力崩溃) -> 10(放松/无压)
