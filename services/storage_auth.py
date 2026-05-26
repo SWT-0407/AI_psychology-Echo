@@ -6,8 +6,16 @@ import os
 import hashlib
 import streamlit as st
 from datetime import datetime
-from dotenv import load_dotenv
-from supabase import create_client
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*args, **kwargs):
+        return False
+
+try:
+    from supabase import create_client
+except ImportError:
+    create_client = None
 
 load_dotenv()
 
@@ -20,7 +28,7 @@ def _get_client():
     """获取 Supabase 客户端（惰性初始化）"""
     global _supabase_client
     if _supabase_client is None:
-        if not SUPABASE_URL or not SUPABASE_KEY:
+        if create_client is None or not SUPABASE_URL or not SUPABASE_KEY:
             return None
         try:
             _supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)

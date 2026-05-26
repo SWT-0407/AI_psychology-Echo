@@ -7,8 +7,16 @@
 import os
 import streamlit as st
 from datetime import datetime
-from dotenv import load_dotenv
-from supabase import create_client
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*args, **kwargs):
+        return False
+
+try:
+    from supabase import create_client
+except ImportError:
+    create_client = None
 
 load_dotenv()
 
@@ -21,6 +29,9 @@ def _get_client():
     """获取 Supabase 客户端（惰性初始化）"""
     global _supabase_client
     if _supabase_client is None:
+        if create_client is None:
+            st.warning("云端同步依赖未安装，当前使用本地存储。")
+            return None
         if not SUPABASE_URL or not SUPABASE_KEY:
             st.error("Supabase 配置缺失，请在 .env 文件中设置 SUPABASE_URL 和 SUPABASE_ANON_KEY")
             return None
