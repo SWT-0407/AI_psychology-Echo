@@ -7,8 +7,10 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from services.app_storage import (
+    companion_chat_path,
     create_character,
     load_characters,
     load_companion_messages,
@@ -29,6 +31,12 @@ COMPANION_CSS = """
 .block-container {
     max-width: none;
     padding: 0;
+    width: 100vw;
+}
+html, body, .stApp {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
 }
 [data-testid="stVerticalBlock"] { gap: 0; }
 [data-testid="stHorizontalBlock"] { gap: 0 !important; }
@@ -52,6 +60,27 @@ COMPANION_CSS = """
     color: #333;
     font-size: 20px;
     box-sizing: border-box;
+}
+.st-key-companion_back_prev {
+    position: fixed !important;
+    left: 10px !important;
+    top: 4px !important;
+    z-index: 80 !important;
+    width: 74px !important;
+}
+.st-key-companion_back_prev button {
+    min-height: 28px !important;
+    height: 28px !important;
+    padding: 0 10px !important;
+    border-radius: 6px !important;
+    border: 1px solid #bdbdbd !important;
+    background: #eeeeee !important;
+    color: #333 !important;
+    font-size: 14px !important;
+}
+.st-key-companion_back_prev button:hover {
+    background: #e3e3e3 !important;
+    border-color: #a8a8a8 !important;
 }
 .wx-layout,
 .st-key-wx_layout {
@@ -128,6 +157,7 @@ COMPANION_CSS = """
     color: inherit;
     background: #e9e9eb;
     border-bottom: 1px solid #dddddf;
+    cursor: default;
 }
 .wx-contact:hover { background: #dedfe2; }
 .wx-contact.active {
@@ -273,7 +303,8 @@ COMPANION_CSS = """
 }
 .wx-bubble {
     position: relative;
-    max-width: min(72%, 940px);
+    max-width: min(72%, 940px) !important;
+    min-width: 32px;
     padding: 12px 16px;
     border-radius: 6px;
     color: #111;
@@ -388,14 +419,198 @@ textarea[aria-label="发消息"] {
     color: #9b9b9b !important;
     min-width: 82px;
 }
+.st-key-wx_page {
+    height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
+}
+.st-key-wx_layout > div[data-testid="stHorizontalBlock"] {
+    height: calc(100vh - 36px);
+    display: block !important;
+    gap: 0 !important;
+}
+.st-key-wx_layout > div[data-testid="stHorizontalBlock"] > div {
+    width: 100% !important;
+    min-width: 0 !important;
+}
+.wx-sidebar {
+    display: grid !important;
+    grid-template-columns: 88px minmax(0, 1fr) !important;
+    width: 420px !important;
+    position: fixed !important;
+    left: 0 !important;
+    top: 36px !important;
+    bottom: 0 !important;
+    height: calc(100vh - 36px) !important;
+    min-height: 0 !important;
+    z-index: 10 !important;
+}
+.wx-rail {
+    background: #dedede;
+    border-right: 1px solid #d3d3d3;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 18px 0 14px;
+    box-sizing: border-box;
+    gap: 26px;
+}
+.wx-rail-avatar {
+    width: 54px;
+    height: 54px;
+    border-radius: 8px;
+    background: #f7f7f7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+}
+.wx-rail-icon {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #696969;
+    font-size: 27px;
+}
+.wx-rail-icon.active { color: #07c160; }
+.wx-rail-spacer { flex: 1; }
+.wx-conv-panel {
+    min-width: 0;
+    height: 100%;
+    background: #e9e9eb;
+    overflow: hidden;
+}
+.wx-sidebar-buttons {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    padding: 0 14px 12px;
+}
+.wx-sidebar-buttons .stButton > button {
+    min-height: 34px;
+    font-size: 13px;
+    padding: 4px 8px;
+}
+.wx-chat,
+.st-key-wx_layout .wx-chat {
+    position: fixed !important;
+    left: 420px !important;
+    right: 0 !important;
+    top: 36px !important;
+    bottom: 0 !important;
+    width: auto !important;
+    height: calc(100vh - 36px) !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    z-index: 9 !important;
+}
+.wx-chat *,
+.wx-sidebar * {
+    writing-mode: horizontal-tb !important;
+    text-orientation: mixed !important;
+}
+.wx-chat-body {
+    height: calc(100vh - 36px - 72px - 196px) !important;
+    min-height: 0 !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+}
+.wx-composer {
+    height: 196px !important;
+    flex: 0 0 196px !important;
+}
+.st-key-wx_composer_controls {
+    position: fixed !important;
+    left: 440px !important;
+    right: 16px !important;
+    bottom: 20px !important;
+    z-index: 20 !important;
+    height: 170px !important;
+    background: #fff;
+    border: 1px solid #dcdcdc;
+    border-radius: 8px;
+    padding: 10px 18px 12px;
+    box-sizing: border-box;
+}
+.st-key-wx_composer_controls [data-testid="stHorizontalBlock"] {
+    gap: 10px !important;
+}
+.st-key-wx_composer_controls textarea {
+    min-height: 86px !important;
+    height: 86px !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    font-size: 18px !important;
+    resize: none !important;
+}
+.st-key-wx_composer_controls .stForm {
+    border: 0;
+    padding: 0;
+}
+.st-key-wx_selected_actions {
+    position: fixed !important;
+    left: 440px !important;
+    bottom: 196px !important;
+    z-index: 21 !important;
+    display: flex;
+    gap: 8px;
+}
+.st-key-wx_selected_actions [data-testid="stHorizontalBlock"] {
+    width: 180px;
+}
+.wx-list {
+    position: fixed !important;
+    left: 88px !important;
+    top: 144px !important;
+    bottom: 0 !important;
+    width: 332px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    z-index: 13 !important;
+    background: #e9e9eb;
+}
+.wx-contact {
+    width: 332px !important;
+    left: 0 !important;
+}
+.st-key-toggle_add_contact,
+.st-key-simulate_unread,
+.st-key-companion_back_home {
+    position: fixed !important;
+    z-index: 30 !important;
+    top: 108px !important;
+    width: 92px !important;
+}
+.st-key-toggle_add_contact { left: 102px !important; }
+.st-key-simulate_unread { left: 202px !important; }
+.st-key-companion_back_home { left: 302px !important; }
+.st-key-toggle_add_contact button,
+.st-key-simulate_unread button,
+.st-key-companion_back_home button {
+    min-height: 28px !important;
+    height: 28px !important;
+    padding: 0 8px !important;
+    font-size: 13px !important;
+}
 @media (max-width: 980px) {
-    .wx-page { height: auto; overflow: visible; }
+    html, body, .stApp { overflow: auto; }
+    .wx-page, .st-key-wx_page { height: auto; max-height: none; overflow: visible; }
     .wx-layout { display: block; height: auto; }
-    .wx-sidebar, .wx-chat { height: auto; min-height: 0; }
+    .wx-sidebar { position: static !important; width: 100% !important; grid-template-columns: 64px 1fr !important; height: auto !important; min-height: 0 !important; }
+    .wx-rail { min-height: 420px; }
+    .st-key-wx_layout .wx-chat, .wx-chat { position: static !important; height: auto !important; min-height: 0 !important; }
     .wx-list { height: auto; max-height: 420px; }
-    .wx-chat-body { padding: 20px 18px; }
+    .wx-chat-body { height: 55vh !important; padding: 20px 18px; }
     .wx-bubble { max-width: 78%; font-size: 17px; }
     .wx-composer { height: auto; }
+    .st-key-wx_composer_controls {
+        position: static !important;
+        height: auto !important;
+        margin: 0;
+    }
 }
 </style>
 """
@@ -786,21 +1001,279 @@ def _render_message_form(selected: Optional[Dict[str, Any]]) -> None:
         _submit_companion_message(selected, prompt, multimodal.get("emotion"))
 
 
+def _query_param(name: str) -> Optional[str]:
+    try:
+        value = st.query_params.get(name)
+        if isinstance(value, list):
+            return value[0] if value else None
+        return value
+    except Exception:
+        return None
+
+
+def _clear_companion_action_params(selected_id: Optional[str] = None) -> None:
+    try:
+        st.query_params.clear()
+        if selected_id:
+            st.query_params["companion_char"] = selected_id
+    except Exception:
+        pass
+
+
+def _handle_contact_action(characters: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    action = _query_param("contact_action")
+    char_id = _query_param("contact_target")
+    if action not in {"delete_chat", "delete_role"} or not char_id:
+        return characters
+
+    target = next((c for c in characters if c.get("id") == char_id), None)
+    if not target:
+        _clear_companion_action_params(st.session_state.get("selected_character_id"))
+        st.rerun()
+
+    if action == "delete_chat":
+        save_companion_messages(char_id, [])
+        _touch_character(target, unread_delta=0)
+        st.toast("聊天记录已删除")
+        _clear_companion_action_params(char_id)
+        st.rerun()
+
+    remaining = [c for c in characters if c.get("id") != char_id]
+    save_characters(remaining)
+    try:
+        companion_chat_path(char_id).unlink(missing_ok=True)
+    except Exception:
+        save_companion_messages(char_id, [])
+
+    if st.session_state.get("selected_character_id") == char_id:
+        st.session_state.selected_character_id = remaining[0]["id"] if remaining else None
+    st.toast("角色已删除")
+    _clear_companion_action_params(st.session_state.get("selected_character_id"))
+    st.rerun()
+
+
+def _render_sidebar(characters: List[Dict[str, Any]], selected: Optional[Dict[str, Any]]) -> None:
+    selected_id = selected.get("id") if selected else ""
+    st.markdown(
+        dedent("""
+        <aside class="wx-sidebar">
+            <nav class="wx-rail">
+                <div class="wx-rail-avatar">🙂</div>
+                <div class="wx-rail-icon active">●</div>
+                <div class="wx-rail-icon">☰</div>
+                <div class="wx-rail-icon">□</div>
+                <div class="wx-rail-icon">◎</div>
+                <div class="wx-rail-spacer"></div>
+                <div class="wx-rail-icon">▣</div>
+                <div class="wx-rail-icon">☷</div>
+            </nav>
+            <section class="wx-conv-panel">
+                <div class="wx-left-head">
+                    <div class="wx-search-row">
+                        <div class="wx-search-fake">⌕<span>搜索</span></div>
+                        <div class="wx-plus">+</div>
+                    </div>
+                </div>
+        """).strip(),
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="wx-sidebar-buttons">', unsafe_allow_html=True)
+    b1, b2, b3 = st.columns([1, 1, 1])
+    with b1:
+        if st.button("添加", use_container_width=True, key="toggle_add_contact"):
+            st.session_state.show_add_contact = not st.session_state.get("show_add_contact", False)
+            st.rerun()
+    with b2:
+        if st.button("新消息", use_container_width=True, key="simulate_unread"):
+            _simulate_unread()
+            st.rerun()
+    with b3:
+        if st.button("首页", use_container_width=True, key="companion_back_home"):
+            st.session_state.page = "home"
+            st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    _render_add_contact(characters)
+
+    list_html = ['<div class="wx-list">']
+    if not characters:
+        list_html.append(_file_helper_row(active=True))
+    for char in _sort_characters(load_characters()):
+        messages = load_companion_messages(char["id"])
+        active = char.get("id") == selected_id
+        unread = int(char.get("unread") or 0)
+        unread_html = f'<span class="wx-unread">{unread}</span>' if unread else ""
+        muted = '<span class="wx-muted">⌁</span>' if not active else ""
+        pin = "📌 " if char.get("pinned") else ""
+        char_id = escape(str(char.get("id", "")))
+        list_html.append(dedent(f"""
+        <div class="wx-contact{' active' if active else ''}" data-char-id="{char_id}" onclick="window.location.href='{_contact_href(char.get("id", ""))}'">
+            <div class="wx-avatar">{escape(char.get("emoji", "😊"))}</div>
+            <div class="wx-contact-main">
+                <div class="wx-contact-name">{pin}{escape(char.get("name", "新朋友"))}</div>
+                <div class="wx-contact-preview">{escape(_last_message(messages))}</div>
+            </div>
+            <div class="wx-contact-time">{escape(_last_time(messages))}</div>
+            {unread_html}
+            {muted}
+        </div>
+        """).strip())
+    list_html.append("</div></section></aside>")
+    st.markdown("".join(list_html), unsafe_allow_html=True)
+
+
+def _install_contact_context_menu() -> None:
+    components.html(
+        """
+        <script>
+        (() => {
+          const doc = window.parent.document;
+          const old = doc.getElementById("wx-contact-context-menu");
+          if (old) old.remove();
+
+          const menu = doc.createElement("div");
+          menu.id = "wx-contact-context-menu";
+          menu.style.cssText = [
+            "position:fixed",
+            "display:none",
+            "z-index:99999",
+            "min-width:150px",
+            "padding:6px 0",
+            "border:1px solid #cfcfcf",
+            "border-radius:6px",
+            "background:#fff",
+            "box-shadow:0 8px 24px rgba(0,0,0,.16)",
+            "font:14px Microsoft YaHei, Segoe UI, sans-serif",
+            "color:#222"
+          ].join(";");
+
+          const item = (label, action, danger) => {
+            const el = doc.createElement("div");
+            el.textContent = label;
+            el.dataset.action = action;
+            el.style.cssText = `padding:9px 16px;cursor:default;color:${danger ? "#d93025" : "#222"}`;
+            el.addEventListener("mouseenter", () => el.style.background = "#f2f2f2");
+            el.addEventListener("mouseleave", () => el.style.background = "transparent");
+            return el;
+          };
+
+          menu.appendChild(item("删除聊天", "delete_chat", false));
+          menu.appendChild(item("删除角色", "delete_role", true));
+          doc.body.appendChild(menu);
+
+          let currentId = null;
+          const hide = () => {
+            menu.style.display = "none";
+            currentId = null;
+          };
+
+          doc.addEventListener("contextmenu", (event) => {
+            const contact = event.target.closest && event.target.closest(".wx-contact[data-char-id]");
+            if (!contact) {
+              hide();
+              return;
+            }
+            event.preventDefault();
+            currentId = contact.dataset.charId;
+            menu.style.left = `${event.clientX}px`;
+            menu.style.top = `${event.clientY}px`;
+            menu.style.display = "block";
+          }, true);
+
+          doc.addEventListener("click", (event) => {
+            const action = event.target.dataset && event.target.dataset.action;
+            if (!action || !currentId) {
+              hide();
+              return;
+            }
+            const message = action === "delete_role"
+              ? "确定删除这个角色和它的聊天记录吗？"
+              : "确定删除这个角色的聊天记录吗？";
+            if (window.parent.confirm(message)) {
+              const url = new URL(window.parent.location.href);
+              url.searchParams.set("companion_char", currentId);
+              url.searchParams.set("contact_target", currentId);
+              url.searchParams.set("contact_action", action);
+              window.parent.location.href = url.toString();
+            }
+            hide();
+          }, true);
+
+          doc.addEventListener("scroll", hide, true);
+          doc.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") hide();
+          }, true);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+def _render_selected_actions(selected: Optional[Dict[str, Any]]) -> None:
+    if not selected:
+        return
+    with st.container(key="wx_selected_actions"):
+        a1, a2 = st.columns([1, 1])
+        with a1:
+            label = "取消置顶" if selected.get("pinned") else "置顶"
+            if st.button(label, use_container_width=True, key="pin_selected"):
+                selected["pinned"] = not bool(selected.get("pinned"))
+                _save_character(selected)
+                st.rerun()
+        with a2:
+            if st.button("清未读", use_container_width=True, key="clear_unread_selected"):
+                _mark_read(selected)
+                st.rerun()
+
+
+def _render_message_form(selected: Optional[Dict[str, Any]]) -> None:
+    if not selected:
+        return
+
+    with st.container(key="wx_composer_controls"):
+        multimodal = render_multimodal_controls(f"companion_{selected['id']}")
+        if multimodal.get("voice_text"):
+            _submit_companion_message(selected, multimodal["voice_text"], multimodal.get("emotion"))
+
+        with st.form(f"send_companion_{selected['id']}", clear_on_submit=True):
+            text_col, send_col = st.columns([8, 1])
+            with text_col:
+                prompt = st.text_area(
+                    "发送消息",
+                    label_visibility="collapsed",
+                    placeholder="输入消息...",
+                    height=92,
+                    key=f"companion_text_{selected['id']}",
+                )
+            with send_col:
+                submitted = st.form_submit_button("发送", use_container_width=True)
+
+        if submitted and prompt.strip():
+            _submit_companion_message(selected, prompt, multimodal.get("emotion"))
+
+
 def render_companion_page() -> None:
     _inject_css()
     st.session_state.page = "companion"
 
-    characters = load_characters()
+    characters = _handle_contact_action(load_characters())
     selected = _handle_query_selection(characters)
 
     page_container = st.container(key="wx_page")
     with page_container:
+        if st.button("< 返回", key="companion_back_prev"):
+            st.session_state.page = "home"
+            st.rerun()
         st.markdown('<div class="wx-window-bar">⌖ － □ ×</div>', unsafe_allow_html=True)
         layout_container = st.container(key="wx_layout")
         with layout_container:
             left, right = st.columns([0.245, 0.755], gap="small")
             with left:
                 _render_sidebar(characters, selected)
+                _install_contact_context_menu()
             with right:
                 _render_chat_messages(selected)
                 _render_selected_actions(selected)
