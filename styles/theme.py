@@ -442,6 +442,16 @@ GLOBAL_CSS = """
         }
     }
 
+    /* ===== 顶栏（header）背景色与主界面一致 ===== */
+    header[data-testid="stHeader"] {
+        background: linear-gradient(135deg, #f8fbff 0%, #eef4fb 100%) !important;
+    }
+
+    /* 顶栏中的 Deployment / Manage app 文字区域 */
+    header[data-testid="stHeader"] div {
+        background: transparent !important;
+    }
+
     /* ===== 隐藏 Streamlit 默认水印 ===== */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
@@ -450,6 +460,69 @@ GLOBAL_CSS = """
     .chat-message-content {
         line-height: 1.7;
         color: #4a5a6a;
+    }
+
+    /* ===== 历史记录子栏 ===== */
+    .history-subitem {
+        padding: 0.25rem 0.8rem 0.25rem 1.8rem;
+        border-radius: 10px;
+        transition: all 0.2s ease;
+        font-size: 0.82rem;
+        color: #7a9aba;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-left: 2px solid transparent;
+    }
+
+    .history-subitem:hover {
+        background: rgba(100, 181, 246, 0.05);
+        border-left-color: rgba(100, 181, 246, 0.3);
+    }
+
+    .history-subitem.selected {
+        background: rgba(100, 181, 246, 0.08);
+        border-left-color: #64b5f6;
+        color: #4a6a8a;
+    }
+
+    /* ===== 聊天气泡在历史记录中的滚动容器 ===== */
+    .history-chat-scroll {
+        max-height: 350px;
+        overflow-y: auto;
+        padding: 0.5rem;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.3);
+    }
+
+    .history-chat-scroll::-webkit-scrollbar {
+        width: 3px;
+    }
+
+    .history-chat-scroll::-webkit-scrollbar-thumb {
+        background: rgba(100, 181, 246, 0.1);
+        border-radius: 10px;
+    }
+
+    /* ===== 历史返回按钮 ===== */
+    .back-button {
+        background: rgba(100, 181, 246, 0.05);
+        border: 1px solid rgba(100, 181, 246, 0.1);
+        border-radius: 12px;
+        padding: 0.3rem 0.8rem;
+        color: #5a7a9a;
+        font-size: 0.82rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .back-button:hover {
+        background: rgba(100, 181, 246, 0.1);
+    }
+
+    /* ===== checkbox 样式优化（用于侧边栏展开/收起） ===== */
+    .stCheckbox {
+        gap: 6px !important;
     }
 </style>
 """

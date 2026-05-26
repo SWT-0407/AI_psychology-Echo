@@ -6,7 +6,7 @@
 import torch
 import torch.nn as nn
 import streamlit as st
-from config import EXPERT_WEIGHTS
+from Multimodal.config import EXPERT_WEIGHTS
 
 
 class ScientificEvalNet(nn.Module):

@@ -1,13 +1,28 @@
-# 忽略 .env 文件和包含私密信息的配置文件夹
-.env
-config.json
-settings-local.py
-
-# 忽略系统或编辑器生成的缓存文件
+﻿# Python
 __pycache__/
-.DS_Store
-*.pyc
-
-# 忽略依赖包文件夹
-node_modules/
+*.py[cod]
+*.egg-info/
+.venv/
 venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+
+# 向量数据库（重建脚本即可）
+my_book_db/
+data/faiss_db/
+
+# 用户数据
+data/history/
+data/scores/
+
+# 临时文件
+a.py
+E:\*
+E:/faiss_db/
+mental_data.csv
+
+# 环境变量
+.env
