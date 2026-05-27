@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 
@@ -17,6 +18,8 @@ NEGATIVE_WORDS = ["难受", "焦虑", "压力", "崩溃", "失眠", "累", "痛�
 BODY_WORDS = ["失眠", "睡不着", "头疼", "胃疼", "疲惫", "累", "吃不下", "心慌"]
 SUPPORT_WORDS = ["朋友", "室友", "家人", "老师", "同学", "陪", "倾诉"]
 MOTIVATION_WORDS = ["不想动", "拖延", "摆烂", "努力", "完成", "计划", "学习"]
+CRISIS_WORDS = ["自杀", "自残", "不想活", "死了算了", "结束生命", "伤害自己", "活不下去"]
+DISTRESS_WORDS = ["崩溃", "撑不住", "绝望", "痛苦", "麻木", "想哭", "没人懂", "熬不住"]
 
 
 def _clamp(value: float) -> int:
@@ -65,32 +68,459 @@ def level_name(scores: Dict[str, int]) -> str:
     return "建议求助"
 
 
+def _recent_memory(character: Dict[str, Any], limit: int = 3) -> List[str]:
+    memories = character.get("memory") or []
+    items = [m.get("summary", "") for m in memories if isinstance(m, dict) and m.get("summary")]
+    return items[-limit:]
+
+
+def _relationship_stage(character: Dict[str, Any]) -> str:
+    rel = character.get("relationship") or {}
+    return str(character.get("relationship_stage") or rel.get("stage") or "初识")
+
+
+def _emotion_label(character: Dict[str, Any]) -> str:
+    state = character.get("emotion_state") or {}
+    return str(state.get("label") or "平静")
+
+
+def _pick(lines: List[str], seed_text: str = "") -> str:
+    if not lines:
+        return ""
+    seed = sum(ord(ch) for ch in seed_text) + len(seed_text) * 17
+    return lines[seed % len(lines)]
+
+
+def _profile_summary() -> Dict[str, Any]:
+    try:
+        from services.user_profile import get_profile_summary
+
+        return get_profile_summary()
+    except Exception:
+        return {}
+
+
+def _style_tail(character: Dict[str, Any]) -> str:
+    style = str(character.get("speaking_style") or "")
+    model = character.get("answer_model") or {}
+    defense = str(model.get("defense_mechanism") or "")
+    if "开玩笑" in defense or "自嘲" in defense:
+        return "我可能会先嘴硬两句，但这事我认真听。"
+    if "冷" in defense or "疏离" in defense:
+        return "我先不追着问，你愿意讲的时候我在。"
+    if "转移" in defense or "逃避" in defense:
+        return "我不会马上把话题岔开，先陪你把这块说完。"
+    if "吐槽" in style:
+        return "我先站你这边，别急着审判自己。"
+    if "短" in style or "微信" in style:
+        return "慢慢说，我在。"
+    if "温柔" in style:
+        return "你不用一下子讲清楚，我会听。"
+    return "先说到你最想说的那块。"
+
+
+def _period_label() -> str:
+    hour = datetime.now().hour
+    if 5 <= hour < 11:
+        return "morning"
+    if 11 <= hour < 18:
+        return "day"
+    if 18 <= hour < 23:
+        return "night"
+    return "late_night"
+
+
+def _persona_value(character: Dict[str, Any], section: str, key: str) -> str:
+    profile = character.get("persona_profile") or {}
+    group = profile.get(section) if isinstance(profile, dict) else {}
+    if not isinstance(group, dict):
+        return ""
+    return str(group.get(key) or "").strip()
+
+
+def _time_texture(character: Dict[str, Any]) -> str:
+    model = character.get("answer_model") or {}
+    cadence = str(model.get("reply_cadence") or "")
+    time_sensitivity = str(model.get("time_sensitivity") or "")
+    rhythm = _persona_value(character, "surface", "daily_rhythm")
+    period = _period_label()
+
+    if period == "late_night" and any(word in rhythm + time_sensitivity + cadence for word in ["夜", "失眠", "熬夜", "深夜"]):
+        return _pick([
+            "这个点我反而清醒一点。",
+            "深夜容易把话说得更真一点。",
+            "我刚把灯调暗，脑子还没停。",
+        ], character.get("name", "") + period)
+    if period == "day" and any(word in cadence + rhythm for word in ["工作", "加班", "会议", "实习", "上课", "打断"]):
+        return _pick([
+            "我刚从一段事里抽出来。",
+            "白天消息容易断一下，但我看到了。",
+            "刚忙完一小截，回你。",
+        ], character.get("name", "") + period)
+    if period == "morning" and any(word in rhythm for word in ["失眠", "睡眠", "晚睡"]):
+        return "我今天醒得有点慢。"
+    return ""
+
+
+def _residue_line(character: Dict[str, Any]) -> str:
+    residue = character.get("emotional_residue") or {}
+    if not isinstance(residue, dict):
+        return ""
+    label = str(residue.get("label") or "")
+    if label == "关系拉扯":
+        return _pick([
+            "昨天那点别扭我还没完全放下，但我不是不想理你。",
+            "我还在消化刚才那阵情绪，所以说话可能会慢一点。",
+        ], str(residue.get("summary") or ""))
+    if label == "缓和中":
+        return _pick([
+            "我心里那点紧绷松了一些。",
+            "嗯，感觉比刚才柔和一点了。",
+        ], str(residue.get("summary") or ""))
+    return ""
+
+
+def _persona_presence(character: Dict[str, Any]) -> str:
+    model = character.get("answer_model") or {}
+    need = str(model.get("core_need") or "")
+    fear = str(model.get("core_fear") or "")
+    affection = str(model.get("affection_style") or "")
+    desire = str(model.get("desire_signal") or "")
+
+    if affection and any(word in affection for word in ["照顾", "细节", "提醒"]):
+        return "我会先盯一下那些容易被你忽略的小事。"
+    if affection and any(word in affection for word in ["分享", "生活", "日常"]):
+        return "我会忍不住把自己的日常也掺一点进来。"
+    if need and any(word in need for word in ["安全", "稳定", "确定"]):
+        return "我比较需要确定感，所以会在意你话里那些忽冷忽热的地方。"
+    if fear and any(word in fear for word in ["忽视", "抛下", "不重要"]):
+        return "我对突然安静会有点敏感。"
+    if desire:
+        return _pick([
+            "我也有自己的事想往前推，所以不会只围着情绪打转。",
+            "我知道自己想要什么，这会让我有时显得有点倔。",
+        ], desire)
+    return ""
+
+
+def _answer_model_hint(character: Dict[str, Any]) -> str:
+    model = character.get("answer_model") or {}
+    if not model:
+        return ""
+    parts = [
+        f"关系强度：{model.get('relationship_intensity')}",
+        f"亲近速度：{model.get('closeness_velocity')}",
+        f"主动性：{model.get('initiative_pattern')}",
+        f"边界：{model.get('boundary_signal')}",
+        f"现实交集：{model.get('offline_weight')}",
+        f"情感模式：{model.get('attachment_guess')}",
+        f"人格底色：{model.get('persona_consistency')}",
+        f"时间感：{model.get('time_sensitivity')}",
+        f"欲望：{model.get('desire_signal')}",
+    ]
+    return "；".join(part for part in parts if part and "None" not in part)
+
+
+def _relationship_model_reply(character: Dict[str, Any], user_text: str) -> Optional[str]:
+    model = character.get("answer_model") or {}
+    if not model:
+        return None
+
+    strategy = str(model.get("reply_strategy") or "")
+    boundary = str(model.get("boundary_signal") or "")
+    velocity = str(model.get("closeness_velocity") or "")
+    intensity = str(model.get("relationship_intensity") or "")
+    initiative = str(model.get("initiative_pattern") or "")
+
+    if any(word in user_text for word in ["他是不是", "她是不是", "ta是不是", "TA是不是", "喜欢我", "暧昧", "什么意思"]):
+        if boundary == "边界风险偏高":
+            return _pick([
+                f"我先不急着替你下结论。按你填的档案看，重点不是一句话像不像喜欢，而是边界已经有点模糊。我们先看三个事实：谁更主动、有没有公开避嫌、这种亲近是否稳定持续。",
+                f"这段确实容易让人心里起波动。我的判断模型会先抓边界：如果有隐藏、吃醋或暧昧，但又没有明确承诺，就要先保护你自己，不把全部希望压在暗示上。",
+            ], user_text)
+        if velocity == "突然升温":
+            return _pick([
+                f"突然变亲近这点很关键。它可能是好感，也可能是阶段性需要陪伴。你可以回想一下：变亲近之前发生了什么？以及这种主动有没有连续超过一两周？",
+                f"我会把它先归为“需要观察的升温”。别只看热的时候，也看冷的时候：对方忙、情绪稳定、身边有人时，还会不会一样靠近你。",
+            ], user_text)
+        if intensity == "高":
+            return _pick([
+                f"你填的信息里，这段关系强度已经不低了。下一步别只问“像不像喜欢”，更要问：这种特殊性是不是双向、稳定、愿意承担现实成本。",
+                f"它不是普通路人式互动了。但高强度不等于确定关系，我们还要看对方有没有持续主动和清楚边界。",
+            ], user_text)
+
+    if any(word in user_text for word in ["怎么办", "怎么做", "要不要", "该不该"]):
+        return _pick([
+            f"我会按这个模型来拆：{strategy} 你现在先别做大动作，先补一个证据：下一次联系是谁主动、对方有没有给出具体行动。",
+            f"先稳住，不急着摊牌。按目前档案，主动性是“{initiative}”。如果你想判断关系，最好观察一次自然场景里的主动，而不是你推进后的回应。",
+        ], user_text)
+
+    return None
+
+
+def _companion_reply(
+    user_text: str,
+    messages: List[Dict[str, Any]],
+    scores: Dict[str, int],
+    character: Dict[str, Any],
+) -> str:
+    name = character.get("name", "我")
+    personality = character.get("personality", "温柔、认真陪伴")
+    style = character.get("speaking_style", "自然、像微信聊天一样简短亲近")
+    stage = _relationship_stage(character)
+    mood = _emotion_label(character)
+    memories = _recent_memory(character)
+    model_hint = _answer_model_hint(character)
+    time_line = _time_texture(character)
+    residue_line = _residue_line(character)
+    persona_line = _persona_presence(character)
+    low = overall_score(scores) < 55
+    very_low = overall_score(scores) < 40
+    profile = _profile_summary()
+    profile_tags = profile.get("tags") or []
+    profile_topics = profile.get("recent_topics") or []
+    profile_emotion = str(profile.get("latest_emotion") or "")
+    profile_needs_support = (
+        profile.get("risk_level") in {"medium", "high"}
+        or any(tag in profile_tags for tag in ["温柔陪伴", "高强度支持", "焦虑压力偏高"])
+        or profile_emotion in {"焦虑", "低落", "疲惫", "生气"}
+    )
+    profile_hint = f"我也会记得你最近常提到「{profile_topics[-1]}」。" if profile_topics else ""
+
+    memory_hint = ""
+    if memories:
+        memory_hint = f"\n我还记得你之前说过：{memories[-1]}"
+
+    if residue_line and any(word in user_text for word in ["还在吗", "怎么了", "生气", "不理", "别扭", "冷"]):
+        return f"{residue_line} 但我在。你刚才那句，我想听你讲完。"
+
+    model_reply = _relationship_model_reply(character, user_text)
+    if model_reply:
+        return model_reply
+
+    if any(word in user_text for word in ["累", "困", "没力气", "不想说话", "睡不着", "失眠"]):
+        return _pick([
+            f"{time_line + ' ' if time_line else ''}那就先别硬聊。你回一个字也行，我在这儿陪你缓一会儿。",
+            "不想说话也可以。你先把手机放低一点，肩膀松一下，我陪你安静待会儿。",
+            f"{persona_line + ' ' if persona_line else ''}今天先把要求降到最低，喝口水也算完成一件事。",
+        ], user_text).strip()
+
+    if very_low:
+        return _pick([
+            f"先别一个人硬扛。{name}在。你现在只要回我一句：最压着你的是什么？",
+            "我听见了，这不是小事。先把呼吸放慢一点，我陪你把这一刻撑过去。",
+            "别急着解决全部。你先告诉我，现在是难过多一点，还是累多一点？",
+        ], user_text)
+
+    if low or profile_needs_support or mood in {"低落", "焦虑", "疲惫", "生气"}:
+        return _pick([
+            f"{time_line + ' ' if time_line else ''}嗯，我懂你现在不太舒服。{_style_tail(character)}",
+            f"这段听起来挺耗人的。{memory_hint}\n你先挑最难受的一点说就行。",
+            f"{profile_hint}现在我会先放轻一点陪你，不急着给结论。你可以只说最卡住的那一小块。",
+            f"先抱一下这件事里的你。我不催你，你可以慢慢讲。",
+        ], user_text).strip()
+
+    if "?" in user_text or "？" in user_text or any(x in user_text for x in ["怎么办", "咋办", "怎么"]):
+        return _pick([
+            "我会先把事情拆小：现在最能动的一步是什么？别从最难的开始。",
+            f"{time_line + ' ' if time_line else ''}我先说短一点：别全盘推翻自己，先处理眼前这个点。",
+            "要不我们先列两个选项？一个保守点，一个痛快点。",
+        ], user_text)
+
+    if stage in {"信任", "重要的人"}:
+        return _pick([
+            f"我记着呢。{memory_hint}\n你继续说，我能跟上。",
+            "你这句我有点在意，感觉后面还有没说完的部分。",
+            "嗯，听起来你其实已经忍了一阵了。今天想让我陪你分析，还是只想我听着？",
+        ], user_text).strip()
+
+    if stage == "亲近":
+        return _pick([
+            "懂了。你不是没想清楚，是心里那块还堵着。",
+            f"我会按「{personality}」来陪你聊。刚刚这件事，最戳你的是哪一下？",
+            f"{memory_hint}\n所以这次你会这么在意，也挺说得通的。",
+        ], user_text).strip()
+
+    relationship_context = any(
+        word in user_text
+        for word in ["他", "她", "TA", "ta", "喜欢", "暧昧", "关系", "边界", "主动", "回复", "见面", "特殊", "什么意思"]
+    )
+    if model_hint and relationship_context:
+        return _pick([
+            f"我先抓几个现实点：稳定主动、公开边界、有没有具体行动。你刚刚这句里，最需要确认的是哪一个？",
+            f"这件事可以慢慢拆。根据你填的信息，我会先看边界和主动性，不急着替你脑补结论。你愿意说说最近一次让你觉得特别的互动吗？",
+            f"{persona_line + ' ' if persona_line else ''}你现在更想判断 TA 的意思，还是先整理你自己的感受？",
+        ], user_text).strip()
+
+    return _pick([
+        f"{time_line + ' ' if time_line else ''}嗯，我在听。刚刚这件事里，最让你在意的是哪一小段？",
+        f"{persona_line + ' ' if persona_line else ''}你可以继续讲细一点。",
+        "先不急着总结。你说这件事的时候，心里最明显的感觉是什么？",
+    ], user_text)
+
+
+def _profile_recent_topics(profile: Optional[Dict[str, Any]]) -> List[str]:
+    if not isinstance(profile, dict):
+        return []
+    emotion = profile.get("emotion") or {}
+    topics = emotion.get("recent_topics") or []
+    return [str(topic) for topic in topics if topic][-4:]
+
+
+def _profile_latest_emotion(profile: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(profile, dict):
+        return ""
+    emotion = profile.get("emotion") or {}
+    return str(emotion.get("latest_label") or "")
+
+
+def _profile_risk_level(profile: Optional[Dict[str, Any]], messages: Optional[List[Dict[str, Any]]] = None) -> str:
+    risk = profile.get("risk") if isinstance(profile, dict) else {}
+    level = str((risk or {}).get("level") or "low")
+    text = " ".join(str(msg.get("content", "")) for msg in (messages or [])[-10:] if isinstance(msg, dict))
+    if any(word in text for word in CRISIS_WORDS):
+        return "crisis"
+    if any(word in text for word in DISTRESS_WORDS) and level in {"medium", "high"}:
+        return "high"
+    if level == "high":
+        return "crisis"
+    return level
+
+
+def _profile_support_hint(profile: Optional[Dict[str, Any]]) -> str:
+    topics = _profile_recent_topics(profile)
+    emotion = _profile_latest_emotion(profile)
+    if topics:
+        return f"你最近反复提到「{topics[-1]}」"
+    if emotion and emotion != "暂无":
+        return f"我记得你最近情绪更像是「{emotion}」"
+    return ""
+
+
+def generate_proactive_message(character: Dict[str, Any], user_profile: Optional[Dict[str, Any]] = None) -> str:
+    name = character.get("name", "")
+    stage = _relationship_stage(character)
+    mood = _emotion_label(character)
+    memories = _recent_memory(character, 1)
+    memory = f"还记得你说过「{memories[-1]}」" if memories else ""
+    time_line = _time_texture(character)
+    residue_line = _residue_line(character)
+    profile_mood = _profile_latest_emotion(user_profile)
+    profile_hint = _profile_support_hint(user_profile)
+    profile_risk = _profile_risk_level(user_profile)
+
+    if profile_risk == "crisis":
+        return "我有点担心你现在的安全。别一个人扛着，先联系身边可信任的人或当地紧急支持。你现在安全吗？"
+    if profile_risk in {"medium", "high"}:
+        return _pick([
+            f"{profile_hint}。我来轻轻敲一下门，不急着问结论，你现在最需要什么？",
+            "今天先别把自己逼太紧。你可以只回一个词，我会接住。",
+            "我在。先喝口水，把肩膀放松一点，再慢慢说。",
+        ], name + profile_risk + profile_hint)
+
+    if residue_line:
+        return _pick([
+            f"{residue_line} 你现在愿意说话了吗？",
+            "我还是想把刚才那点话接住。你还在吗？",
+        ], name + residue_line)
+    if mood in {"低落", "焦虑", "疲惫"} or profile_mood in {"低落", "焦虑", "疲惫"}:
+        return _pick([
+            f"{time_line + ' ' if time_line else ''}刚刚有点惦记你。现在好点了吗？",
+            "你不用回很长，一句也行。还撑得住吗？",
+            "我在。今天先别对自己太狠。",
+        ], name + mood + profile_mood)
+    if stage in {"信任", "重要的人"} and memory:
+        return _pick([
+            f"{memory}，所以来问问你现在怎么样。",
+            "突然想到你，过来敲一下。",
+            "今天有没有按时吃饭？别糊弄过去。",
+        ], name + memory)
+    if profile_hint:
+        return _pick([
+            f"{profile_hint}，所以过来问一句：现在好一点了吗？",
+            f"我刚想到你最近那件事。不用讲很多，回个标点也行。",
+            "今天先给自己留一点余地。你愿意的话，我听你说两句。",
+        ], name + profile_hint)
+    return _pick(["在吗？", "今天怎么样？", "忙完了吗，聊两句？"], name + stage)
+
+
+def generate_care_proactive_message(
+    mode: str,
+    messages: List[Dict[str, Any]],
+    scores: Dict[str, int],
+    user_profile: Optional[Dict[str, Any]] = None,
+) -> str:
+    risk = _profile_risk_level(user_profile, messages)
+    score = overall_score(scores) if scores else None
+    latest_emotion = _profile_latest_emotion(user_profile)
+    hint = _profile_support_hint(user_profile)
+    user_text = " ".join(str(m.get("content", "")) for m in messages[-8:] if m.get("role") == "user")
+    sleep_signal = any(word in user_text for word in ["失眠", "睡不着", "熬夜", "困", "睡眠"])
+
+    if risk == "crisis":
+        return (
+            "我有点担心你现在的安全。如果你有伤害自己的冲动，请立刻联系身边可信任的人，"
+            "或拨打当地紧急电话/心理援助热线。你也可以先回我：现在安全吗？"
+        )
+
+    prefix = "树洞" if mode == "treehole" else "Echo"
+    if risk in {"medium", "high"} or (score is not None and score < 45):
+        return _pick([
+            f"{prefix}轻轻敲一下门。{hint + '，' if hint else ''}今天先别急着解决全部，先告诉我：最重的是哪一块？",
+            "我在这儿。你不用整理得很完整，只要把此刻最明显的感觉放下来一点就好。",
+            "先把要求降到最低：喝口水、慢一点呼吸。然后你可以只回我一个词。",
+        ], mode + str(score) + hint)
+
+    if sleep_signal:
+        return _pick([
+            "这个点先别和自己较劲。把屏幕放低一点，呼吸慢下来，剩下的事明天再处理。",
+            "睡不着的时候，脑子会把事情放大。你先不用分析，只要告诉我：身体哪里最紧？",
+        ], user_text)
+
+    if latest_emotion in {"焦虑", "低落", "疲惫", "生气"} or (score is not None and score < 60):
+        return _pick([
+            f"{hint + '，' if hint else ''}我想过来陪你把情绪放轻一点。现在更想被听见，还是想一起拆一个小步骤？",
+            "今天可以不用表现得很好。你愿意的话，我们先只聊最小的一件事。",
+            "我不急着给建议。你先把今天最耗你的那一句话写下来，我陪你看。",
+        ], mode + latest_emotion + hint)
+
+    if mode == "treehole":
+        return _pick([
+            "今天也给你留了一页空白。不是必须倾诉，只是如果有东西压着，可以先放在这里。",
+            "路过你的树洞。今天有没有一个瞬间，是你想被认真听见的？",
+        ], mode + hint)
+
+    return _pick([
+        "Echo 来轻轻问一句：今天的情绪、身体和行动力，哪一项最需要被照顾？",
+        "如果今天只做一次小检查：你现在的心情更像天气里的哪一种？",
+    ], mode + hint)
+
+
 def generate_reply(
     mode: str,
     user_text: str,
     messages: List[Dict[str, Any]],
     scores: Dict[str, int],
-    character: Optional[Dict[str, str]] = None,
+    character: Optional[Dict[str, Any]] = None,
 ) -> str:
     low = overall_score(scores) < 55
     very_low = overall_score(scores) < 40
     user_text = user_text.strip()
 
     if mode == "companion" and character:
-        name = character.get("name", "我")
-        personality = character.get("personality", "温柔、认真陪伴")
-        if very_low:
-            return f"我是{name}，我会先陪你把这一刻撑过去。你刚刚说的我听见了，我们先不急着解决全部问题，先一起做一次很慢的呼吸，好吗？"
-        if low:
-            return f"我是{name}。按我的性格设定：{personality}，我会更想靠近你一点。你可以继续说，我会帮你把最乱的那一团慢慢拆开。"
-        return f"我是{name}。听起来你心里有不少具体的感受，我会按“{personality}”的方式陪你聊。刚刚这件事里，最让你在意的是哪一小段？"
+        return _companion_reply(user_text, messages, scores, character)
 
     if mode == "treehole":
+        profile = _profile_summary()
+        profile_topics = profile.get("recent_topics") or []
+        profile_hint = f"我也会把你最近反复出现的「{profile_topics[-1]}」记在画像里，后面陪你时会更留意。" if profile_topics else ""
+        if profile.get("risk_level") == "high":
+            return "我听见你现在承受的痛苦很重。先别一个人扛着，如果你有伤害自己的冲动，请马上联系身边可信任的人，或拨打当地紧急电话/心理援助热线。你也可以先回我一个字：现在安全吗？"
         if very_low:
             return "谢谢你把这些放到树洞里。听起来你已经撑得很辛苦了，我会用很轻的声音陪着你。此刻先不要责备自己，能不能先告诉我：现在最压着你的，是事情本身，还是那种没有力气的感觉？"
         if low:
-            return "我听见了，这不是一句“想开点”就能带过去的感受。你已经很努力地在描述它了。我们可以慢慢来：这件事里，最让你委屈或最消耗你的部分是什么？"
-        return "你说得很清楚，我能感觉到你在认真整理今天的心情。这个树洞会先接住你，不急着评价。你愿意再说说，这件事后来给你留下了什么感觉吗？"
+            return f"我听见了，这不是一句“想开点”就能带过去的感受。{profile_hint}你已经很努力地在描述它了。我们可以慢慢来：这件事里，最让你委屈或最消耗你的部分是什么？"
+        return f"你说得很清楚，我能感觉到你在认真整理今天的心情。{profile_hint}这个树洞会先接住你，不急着评价。你愿意再说说，这件事后来给你留下了什么感觉吗？"
 
     user_turns = sum(1 for msg in messages if msg.get("role") == "user")
     if user_turns <= 1:

@@ -13,5 +13,45 @@
     "role": "assistant",
     "content": "你说得很清楚，我能感觉到你在认真整理今天的心情。这个树洞会先接住你，不急着评价。你愿意再说说，这件事后来给你留下了什么感觉吗？",
     "time": "2026-05-26T14:56:17"
+  },
+  {
+    "role": "assistant",
+    "content": "今天也给你留了一页空白。不是必须倾诉，只是如果有东西压着，可以先放在这里。",
+    "time": "2026-05-27T08:11:55",
+    "proactive": true,
+    "proactive_channel": "treehole",
+    "proactive_reason": "due"
+  },
+  {
+    "role": "assistant",
+    "content": "今天也给你留了一页空白。不是必须倾诉，只是如果有东西压着，可以先放在这里。",
+    "time": "2026-05-27T08:19:27",
+    "proactive": true,
+    "proactive_channel": "treehole",
+    "proactive_reason": "force"
+  },
+  {
+    "role": "assistant",
+    "content": "今天也给你留了一页空白。不是必须倾诉，只是如果有东西压着，可以先放在这里。",
+    "time": "2026-05-27T08:19:28",
+    "proactive": true,
+    "proactive_channel": "treehole",
+    "proactive_reason": "force"
+  },
+  {
+    "role": "assistant",
+    "content": "今天也给你留了一页空白。不是必须倾诉，只是如果有东西压着，可以先放在这里。",
+    "time": "2026-05-27T08:19:42",
+    "proactive": true,
+    "proactive_channel": "treehole",
+    "proactive_reason": "force"
+  },
+  {
+    "role": "assistant",
+    "content": "今天也给你留了一页空白。不是必须倾诉，只是如果有东西压着，可以先放在这里。",
+    "time": "2026-05-27T08:19:48",
+    "proactive": true,
+    "proactive_channel": "treehole",
+    "proactive_reason": "force"
   }
 ]

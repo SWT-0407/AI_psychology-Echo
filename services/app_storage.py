@@ -18,6 +18,7 @@ PROFILE_PATH = DIARY_DIR / "profile.json"
 MOOD_PATH = DIARY_DIR / "moods.json"
 TREEHOLE_PATH = TREEHOLE_DIR / "messages.json"
 COMPANION_INDEX = COMPANION_DIR / "characters.json"
+COMPANION_MEMORY_LIMIT = 30
 
 
 def ensure_dirs() -> None:
@@ -133,17 +134,24 @@ def save_profile(profile: Dict[str, Any]) -> None:
     data.setdefault("created_at", data["updated_at"])
     write_json(PROFILE_PATH, data)
     st.session_state.diary_profile = data
+    try:
+        from services.user_profile import update_profile_from_basic_info
+
+        update_profile_from_basic_info(data)
+    except Exception:
+        pass
 
 
-def load_moods() -> Dict[str, str]:
+def load_moods() -> Dict[str, Any]:
     data = read_json(MOOD_PATH, {})
     return data if isinstance(data, dict) else {}
 
 
-def save_mood(date_key: str, emoji: str) -> None:
+def save_mood(date_key: str, emoji: str, event: str = "") -> None:
     moods = load_moods()
-    if emoji:
-        moods[date_key] = emoji
+    event = str(event or "").strip()[:30]
+    if emoji or event:
+        moods[date_key] = {"emoji": emoji, "event": event}
     else:
         moods.pop(date_key, None)
     write_json(MOOD_PATH, moods)
@@ -184,6 +192,12 @@ def build_session_payload(
     profile = st.session_state.get("diary_profile") or load_profile() or {}
     moods = st.session_state.get("diary_moods") or load_moods()
     meta = _score_meta(scores)
+    try:
+        from services.user_profile import get_profile_summary
+
+        user_profile_summary = get_profile_summary()
+    except Exception:
+        user_profile_summary = {}
 
     payload = {
         "session_id": session_id,
@@ -203,6 +217,7 @@ def build_session_payload(
         "ai_direction": old.get("ai_direction", ""),
         "diary_profile": profile,
         "diary_moods": moods,
+        "user_profile_summary": user_profile_summary,
         "storage_version": "diary_v2_original_schema",
     }
     payload.update(meta)
@@ -223,6 +238,12 @@ def save_history_record(
     payload = build_session_payload(mode, messages, scores, session_id, old, title, mood)
     _save_complete_session(session_id, payload)
     _maybe_upload_session(session_id, payload)
+    try:
+        from services.user_profile import update_profile_from_session
+
+        update_profile_from_session(mode, messages, scores, session_id, title or payload.get("title", ""))
+    except Exception:
+        pass
     return session_id
 
 
@@ -246,6 +267,18 @@ def update_history_messages(record_id: str, messages: List[Dict[str, Any]], scor
     )
     _save_complete_session(record_id, payload)
     _maybe_upload_session(record_id, payload)
+    try:
+        from services.user_profile import update_profile_from_session
+
+        update_profile_from_session(
+            payload.get("mode", "psytest"),
+            messages,
+            scores,
+            record_id,
+            payload.get("title", ""),
+        )
+    except Exception:
+        pass
 
 
 def list_history_records(mode: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -291,6 +324,271 @@ def save_characters(characters: List[Dict[str, Any]]) -> None:
     write_json(COMPANION_INDEX, characters)
 
 
+def relationship_stage(intimacy: int) -> str:
+    if intimacy >= 80:
+        return "重要的人"
+    if intimacy >= 40:
+        return "信任"
+    if intimacy >= 18:
+        return "亲近"
+    if intimacy >= 6:
+        return "熟悉"
+    return "初识"
+
+
+def _has_any(text: str, words: List[str]) -> bool:
+    return any(word in text for word in words)
+
+
+def _persona_sections(char: Dict[str, Any]) -> Dict[str, Any]:
+    profile = char.get("persona_profile") or {}
+    return profile if isinstance(profile, dict) else {}
+
+
+def _profile_value(profile: Dict[str, Any], section: str, key: str) -> str:
+    value = (profile.get(section) or {}).get(key) if isinstance(profile.get(section), dict) else ""
+    return str(value or "").strip()
+
+
+def _compact_parts(parts: List[str], limit: int = 6) -> str:
+    clean = [part.strip("；; \n") for part in parts if str(part or "").strip()]
+    return "；".join(clean[:limit])
+
+
+def build_answer_model(char: Dict[str, Any]) -> Dict[str, Any]:
+    """Turn the filled relationship profile into a compact model for replies."""
+    profile = char.get("relationship_profile") or {}
+    persona = _persona_sections(char)
+    joined = " ".join(str(value or "") for value in profile.values())
+    contact = str(profile.get("contact_frequency") or "")
+    content = str(profile.get("interaction_content") or "")
+    offline = str(profile.get("offline_interaction") or "")
+    special = str(profile.get("specialness") or "")
+    boundaries = str(profile.get("boundaries") or "")
+    pattern = str(profile.get("emotional_pattern") or "")
+    duration = str(profile.get("acquaintance_duration") or "")
+
+    intensity_score = 0
+    if _has_any(contact, ["每天", "经常", "频繁", "秒回", "主动", "深夜"]):
+        intensity_score += 2
+    if _has_any(content, ["情绪", "生活", "秘密", "未来", "暧昧", "心事"]):
+        intensity_score += 2
+    if _has_any(offline, ["单独", "经常", "陪", "送", "照顾", "见面"]):
+        intensity_score += 2
+    if _has_any(special, ["特殊", "优先", "区别", "只对", "重要", "偏爱"]):
+        intensity_score += 2
+    if _has_any(boundaries, ["隐藏", "暧昧", "吃醋", "不避嫌", "越界"]):
+        intensity_score += 1
+
+    if intensity_score >= 7:
+        intensity = "高"
+    elif intensity_score >= 4:
+        intensity = "中"
+    else:
+        intensity = "低"
+
+    closeness_velocity = "突然升温" if _has_any(duration + joined, ["突然", "最近", "一下", "忽然", "变亲近"]) else "自然推进"
+    initiative_pattern = "对方更主动" if _has_any(contact, ["他主动", "她主动", "对方主动", "对方更主动", "ta主动", "TA主动", "TA更主动"]) else "用户更主动" if _has_any(contact, ["我主动", "我更主动", "我找", "我发"]) else "主动性不明"
+    boundary_signal = "边界风险偏高" if _has_any(boundaries, ["隐藏", "暧昧", "吃醋", "不避嫌", "越界", "背着"]) else "边界感较清楚" if _has_any(boundaries, ["避嫌", "清楚", "坦荡", "公开"]) else "边界信息不足"
+    offline_weight = "现实交集强" if _has_any(offline, ["单独", "经常", "陪", "送", "照顾", "见面"]) else "主要在线/低现实交集"
+
+    if _has_any(pattern, ["依赖", "粘", "缺安全感"]):
+        attachment_guess = "偏依赖型"
+    elif _has_any(pattern, ["外向", "会撩", "暧昧", "边界弱"]):
+        attachment_guess = "外向暧昧倾向"
+    elif _has_any(pattern, ["冷淡", "回避", "忽冷忽热"]):
+        attachment_guess = "偏回避/不稳定"
+    else:
+        attachment_guess = "信息不足，暂不定型"
+
+    occupation = str(char.get("occupation") or _profile_value(persona, "surface", "occupation"))
+    city = str(char.get("city") or _profile_value(persona, "surface", "city"))
+    daily_rhythm = _profile_value(persona, "surface", "daily_rhythm")
+    core_need = _profile_value(persona, "core", "need")
+    core_fear = _profile_value(persona, "core", "fear")
+    defense = _profile_value(persona, "core", "defense")
+    affection = _profile_value(persona, "core", "affection")
+    family = _profile_value(persona, "life", "family")
+    key_events = _profile_value(persona, "life", "key_events")
+    unfinished = _profile_value(persona, "life", "unfinished")
+    desire = _profile_value(persona, "desire", "personal_desire")
+    day_night = _profile_value(persona, "time", "day_night")
+    recent_state = _profile_value(persona, "time", "recent_state")
+    residue = _profile_value(persona, "time", "emotional_residue")
+
+    if _has_any(daily_rhythm + day_night + occupation, ["夜", "熬夜", "加班", "失眠", "倒时差"]):
+        reply_cadence = "回复节奏不稳定，深夜更容易感性"
+    elif _has_any(daily_rhythm + occupation, ["上课", "排班", "实习", "工作", "会议"]):
+        reply_cadence = "白天会被现实事务打断，回复不总是秒回"
+    else:
+        reply_cadence = "回复节奏自然，亲近后主动性提升"
+
+    persona_consistency = _compact_parts([
+        f"{occupation}" if occupation else "",
+        f"在{city}" if city else "",
+        daily_rhythm,
+        f"需要{core_need}" if core_need else "",
+        f"怕{core_fear}" if core_fear else "",
+        f"防御方式是{defense}" if defense else "",
+        f"表达亲近时{affection}" if affection else "",
+    ])
+    inner_trace = _compact_parts([family, key_events, unfinished], limit=3)
+    time_sensitivity = _compact_parts([day_night, recent_state, residue], limit=3)
+    desire_signal = _compact_parts([desire], limit=1)
+
+    if boundary_signal == "边界风险偏高":
+        reply_strategy = "先帮用户辨认事实和边界，不急着下恋爱结论。"
+    elif intensity == "高":
+        reply_strategy = "承认这段关系对用户的重要性，同时追问对方是否也有稳定投入。"
+    elif closeness_velocity == "突然升温":
+        reply_strategy = "重点观察突然变亲近的触发点、持续性和对方动机。"
+    else:
+        reply_strategy = "用温和追问补齐联系频率、主动性和现实互动证据。"
+
+    return {
+        "relationship_intensity": intensity,
+        "intensity_score": intensity_score,
+        "closeness_velocity": closeness_velocity,
+        "initiative_pattern": initiative_pattern,
+        "boundary_signal": boundary_signal,
+        "offline_weight": offline_weight,
+        "attachment_guess": attachment_guess,
+        "persona_consistency": persona_consistency,
+        "inner_trace": inner_trace,
+        "reply_cadence": reply_cadence,
+        "time_sensitivity": time_sensitivity,
+        "desire_signal": desire_signal,
+        "defense_mechanism": defense,
+        "affection_style": affection,
+        "core_need": core_need,
+        "core_fear": core_fear,
+        "reply_strategy": reply_strategy,
+        "follow_up_focus": [
+            "对方是否持续主动",
+            "互动是否只发生在特定场景",
+            "边界是否公开且稳定",
+            "用户在这段关系里最被牵动的感受",
+        ],
+        "updated_at": now_iso(),
+    }
+
+
+def _detect_emotion_state(user_text: str, emotion: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    if emotion:
+        vector = emotion.get("vector") or {}
+        return {
+            "label": emotion.get("emotion_cn") or emotion.get("emotion") or "平静",
+            "source": "multimodal",
+            "valence": vector.get("valence", emotion.get("valence", 0.5)),
+            "arousal": vector.get("arousal", emotion.get("arousal", 0.5)),
+            "updated_at": now_iso(),
+        }
+
+    text = str(user_text or "")
+    rules = [
+        ("低落", ["难过", "委屈", "崩溃", "想哭", "失落", "孤独", "撑不住"]),
+        ("焦虑", ["焦虑", "紧张", "压力", "害怕", "慌", "担心", "烦"]),
+        ("疲惫", ["累", "困", "失眠", "没力气", "疲惫", "睡不着"]),
+        ("生气", ["生气", "火大", "烦死", "讨厌", "气死"]),
+        ("开心", ["开心", "高兴", "顺利", "喜欢", "期待", "舒服"]),
+    ]
+    for label, words in rules:
+        if any(word in text for word in words):
+            return {"label": label, "source": "text", "updated_at": now_iso()}
+    return {"label": "平静", "source": "text", "updated_at": now_iso()}
+
+
+def _memory_summary(user_text: str) -> Optional[str]:
+    text = re.sub(r"\s+", " ", str(user_text or "")).strip()
+    if len(text) < 6:
+        return None
+    memory_markers = [
+        "我叫", "我是", "我在", "我喜欢", "我讨厌", "我不喜欢", "我害怕", "我希望",
+        "我想", "我要", "记住", "以后", "最近", "今天", "室友", "朋友", "家里", "课程",
+    ]
+    if not any(marker in text for marker in memory_markers):
+        return None
+    return short_text(text, 72)
+
+
+def _detect_emotional_residue(user_text: str, assistant_text: str = "") -> Optional[Dict[str, Any]]:
+    text = str(user_text or "") + " " + str(assistant_text or "")
+    if _has_any(text, ["吵架", "冷战", "别理我", "不想聊", "失望", "生气", "吃醋", "拉黑"]):
+        return {
+            "label": "关系拉扯",
+            "summary": short_text(str(user_text or ""), 56),
+            "strength": 2,
+            "updated_at": now_iso(),
+        }
+    if _has_any(text, ["对不起", "抱歉", "谢谢你", "好多了", "没事了", "和好了"]):
+        return {
+            "label": "缓和中",
+            "summary": short_text(str(user_text or ""), 56),
+            "strength": 1,
+            "updated_at": now_iso(),
+        }
+    return None
+
+
+def update_companion_state(
+    char: Dict[str, Any],
+    user_text: str,
+    assistant_text: str = "",
+    emotion: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    char.setdefault("memory", [])
+    char.setdefault("relationship", {})
+    char.setdefault("emotion_state", {})
+    char.setdefault("reply_habits", {"short_text": True, "avoid_ai_tone": True})
+    char.setdefault("persona_profile", {})
+
+    intimacy_gain = 1
+    if len(str(user_text or "")) >= 40:
+        intimacy_gain += 1
+    if any(word in str(user_text or "") for word in ["谢谢", "想你", "陪我", "记住", "喜欢"]):
+        intimacy_gain += 1
+    char["intimacy"] = max(0, int(char.get("intimacy") or 0) + intimacy_gain)
+
+    stage = relationship_stage(int(char.get("intimacy") or 0))
+    char["relationship"] = {
+        **(char.get("relationship") or {}),
+        "stage": stage,
+        "intimacy": int(char.get("intimacy") or 0),
+        "updated_at": now_iso(),
+    }
+    char["relationship_stage"] = stage
+    char["emotion_state"] = _detect_emotion_state(user_text, emotion)
+    if char.get("relationship_profile"):
+        char["answer_model"] = build_answer_model(char)
+
+    residue = _detect_emotional_residue(user_text, assistant_text)
+    if residue:
+        char["emotional_residue"] = residue
+
+    summary = _memory_summary(user_text)
+    if summary:
+        memories = [m for m in char.get("memory", []) if isinstance(m, dict)]
+        if not any(m.get("summary") == summary for m in memories):
+            memories.append({
+                "summary": summary,
+                "created_at": now_iso(),
+                "last_seen_at": now_iso(),
+                "importance": 2 if any(x in summary for x in ["记住", "我叫", "我喜欢", "我害怕"]) else 1,
+            })
+        char["memory"] = memories[-COMPANION_MEMORY_LIMIT:]
+
+    if assistant_text:
+        char["last_reply"] = short_text(assistant_text, 80)
+    update_character(char)
+    try:
+        from services.user_profile import update_profile_from_companion
+
+        update_profile_from_companion(char, user_text, assistant_text, emotion)
+    except Exception:
+        pass
+    return char
+
+
 def create_character(
     name: str,
     emoji: str,
@@ -311,6 +609,13 @@ def create_character(
         "pinned": False,
         "unread": 1,
         "intimacy": 0,
+        "relationship_stage": "初识",
+        "relationship": {"stage": "初识", "intimacy": 0, "updated_at": now_iso()},
+        "emotion_state": {"label": "平静", "source": "init", "updated_at": now_iso()},
+        "persona_profile": {},
+        "emotional_residue": {},
+        "memory": [],
+        "reply_habits": {"short_text": True, "avoid_ai_tone": True},
         "last_active": now_iso(),
         "last_read_at": "",
         "created_at": now_iso(),
@@ -374,3 +679,9 @@ def init_runtime_state() -> None:
         make_message("assistant", "这里是你的 AI 树洞。今天有什么想悄悄说给我听的吗？")
     ])
     st.session_state.setdefault("selected_character_id", None)
+    try:
+        from services.user_profile import load_user_profile
+
+        st.session_state.setdefault("user_profile", load_user_profile())
+    except Exception:
+        st.session_state.setdefault("user_profile", {})

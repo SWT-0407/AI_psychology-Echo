@@ -176,14 +176,6 @@ def render_login_page():
         # 居中卡片
         col1, col2, col3 = st.columns([1, 2.5, 1])
         with col2:
-            st.markdown(
-                '<div style="background: rgba(255, 255, 255, 0.85); '
-                'backdrop-filter: blur(15px); border: 1px solid rgba(100, 181, 246, 0.15); '
-                'border-radius: 24px; padding: 2.5rem 2rem; margin-top: 2rem; '
-                'box-shadow: 0 8px 30px rgba(100, 181, 246, 0.08);">',
-                unsafe_allow_html=True
-            )
-
             # Logo & 标题
             st.markdown(
                 '<div style="text-align: center; margin-bottom: 1.5rem;">'
@@ -246,8 +238,6 @@ def render_login_page():
                 '数据将加密存储，仅用于本次评估服务</div>',
                 unsafe_allow_html=True
             )
-
-            st.markdown('</div>', unsafe_allow_html=True)
 
     return False
 
