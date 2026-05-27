@@ -1,4 +1,6 @@
+import base64
 import hashlib
+from html import escape
 from typing import Any, Dict, Optional
 
 import streamlit as st
@@ -47,6 +49,131 @@ def build_multimodal_prompt(user_text: str, emotion: Optional[Dict[str, Any]]) -
         f"{user_text}\n\n"
         f"[多模态补充] 摄像头表情识别到的当前状态：{summary}。"
         "请把它作为共情语气的参考，不要把它当成医学诊断。"
+    )
+
+
+def _emotion_frame_data_uri(frame) -> str:
+    if frame is None or getattr(frame, "size", 0) == 0:
+        return ""
+    try:
+        import cv2
+        _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
+        encoded = base64.b64encode(buffer.tobytes()).decode("ascii")
+        return f"data:image/jpeg;base64,{encoded}"
+    except Exception:
+        return ""
+
+
+def _render_emotion_video_popup(scope: str) -> None:
+    mm = get_multimodal_manager()
+    state_key = f"{scope}_emotion_on"
+    if not st.session_state.get(state_key, False):
+        return
+
+    emotion = mm.get_current_emotion()
+    summary = emotion_summary(emotion) or "表情识别已开启"
+    stream_url = ""
+    if hasattr(mm, "get_emotion_stream_url"):
+        stream_url = mm.get_emotion_stream_url()
+
+    if stream_url:
+        body = f'<img src="{escape(stream_url, quote=True)}" alt="表情识别实时视频流" />'
+    else:
+        frame_uri = _emotion_frame_data_uri(mm.get_emotion_frame())
+        if frame_uri:
+            body = f'<img src="{frame_uri}" alt="表情识别视频预览" />'
+        else:
+            body = '<div class="emotion-video-placeholder">正在等待摄像头画面</div>'
+
+    st.markdown(
+        f"""
+        <style>
+        .emotion-video-overlay-root {{
+            position: fixed !important;
+            inset: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            background: transparent !important;
+            pointer-events: none !important;
+            z-index: 2147483647 !important;
+            isolation: isolate !important;
+        }}
+        .emotion-video-popup {{
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+            width: 25vw;
+            height: 25vh;
+            min-width: 240px;
+            min-height: 135px;
+            background: #101216;
+            border: 1px solid rgba(255,255,255,0.18);
+            box-shadow: 0 14px 40px rgba(0,0,0,0.32);
+            z-index: 2147483647 !important;
+            overflow: hidden;
+            pointer-events: none !important;
+            transform: translateZ(0);
+            will-change: transform;
+        }}
+        .emotion-video-popup img {{
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #101216;
+        }}
+        .emotion-video-status {{
+            position: absolute;
+            left: 8px;
+            right: 8px;
+            bottom: 8px;
+            padding: 5px 7px;
+            color: #fff;
+            font-size: 12px;
+            line-height: 1.35;
+            background: rgba(0,0,0,0.58);
+            border-radius: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }}
+        .emotion-video-placeholder {{
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255,255,255,0.72);
+            font-size: 13px;
+            background: #101216;
+        }}
+        @media (max-width: 800px) {{
+            .emotion-video-popup {{
+                right: 12px;
+                bottom: 12px;
+                width: 42vw;
+                height: 24vh;
+                min-width: 200px;
+            }}
+        }}
+        div[data-testid="stMarkdownContainer"]:has(.emotion-video-overlay-root),
+        div[data-testid="stElementContainer"]:has(.emotion-video-overlay-root),
+        div[data-testid="stVerticalBlock"]:has(.emotion-video-overlay-root) {{
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            pointer-events: none !important;
+            z-index: 2147483647 !important;
+        }}
+        </style>
+        <div class="emotion-video-overlay-root" aria-hidden="false">
+            <div class="emotion-video-popup" role="region" aria-label="表情识别视频预览">
+                {body}
+                <div class="emotion-video-status">{escape(summary)}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 
@@ -112,7 +239,11 @@ def render_multimodal_controls(scope: str, image_upload: bool = False) -> Dict[s
 
     if image_upload and image_col is not None:
         with image_col:
-            if st.button("□", key=f"{scope}_image_toggle", help="发送图片"):
+            st.markdown(
+                f'<span class="multimodal-image-toggle-anchor {scope}-image-toggle-anchor"></span>',
+                unsafe_allow_html=True,
+            )
+            if st.button("🖼️", key=f"{scope}_image_toggle", help="发送图片"):
                 panel_key = f"{scope}_image_panel"
                 st.session_state[panel_key] = not st.session_state.get(panel_key, False)
                 st.rerun()
@@ -143,6 +274,7 @@ def render_multimodal_controls(scope: str, image_upload: bool = False) -> Dict[s
         summary = emotion_summary(current_emotion) or "表情识别已开启"
         with status_col:
             st.caption(f"当前表情：{summary}")
+        _render_emotion_video_popup(scope)
     else:
         with status_col:
             st.caption("录音后自动识别；也可开启摄像头表情识别。")

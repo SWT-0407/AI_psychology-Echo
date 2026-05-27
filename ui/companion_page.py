@@ -722,7 +722,7 @@ textarea[aria-label="发消息"] {
     font-size: 0 !important;
 }
 .st-key-wx_composer_controls [data-testid="stFileUploader"] label:after {
-    content: "□";
+    content: "🖼️";
     font-size: 22px;
     color: #5f6368;
 }
@@ -1793,11 +1793,15 @@ def _render_message_form(selected: Optional[Dict[str, Any]]) -> None:
     with st.container(key="wx_composer_controls"):
         scope = f"companion_{selected['id']}"
         text_key = f"companion_text_{selected['id']}"
+        clear_text_key = f"{scope}_clear_text_after_send"
         emoji_key = f"{scope}_emoji_panel"
         image_key = f"{scope}_image_upload"
         audio_key = f"{scope}_audio_input_compact"
         uploaded_image = None
         voice_clicked = False
+
+        if st.session_state.pop(clear_text_key, False):
+            st.session_state[text_key] = ""
 
         prompt = st.text_area(
             "发送消息",
@@ -1813,7 +1817,7 @@ def _render_message_form(selected: Optional[Dict[str, Any]]) -> None:
                 st.session_state[emoji_key] = not st.session_state.get(emoji_key, False)
                 st.rerun()
         with tool_cols[1]:
-            if st.button("□", key=f"{scope}_image_toggle", help="发送图片"):
+            if st.button("🖼️", key=f"{scope}_image_toggle", help="发送图片"):
                 st.session_state[f"{scope}_image_panel"] = not st.session_state.get(f"{scope}_image_panel", False)
                 st.rerun()
         with tool_cols[2]:
@@ -1863,6 +1867,7 @@ def _render_message_form(selected: Optional[Dict[str, Any]]) -> None:
             _submit_companion_message(selected, voice_text)
 
         if submitted and prompt.strip():
+            st.session_state[clear_text_key] = True
             _submit_companion_message(selected, prompt)
 
 

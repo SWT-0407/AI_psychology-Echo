@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from services.multimodal_service import EmotionDetector
 from services.ai_service import _normalize_face_emotion
+from ui.multimodal_controls import _emotion_frame_data_uri
 from Multimodal.config import EMOTION_ANALYSIS_PROMPT, build_face_label_description, build_face_scale_description
 
 
@@ -109,6 +110,35 @@ class MultimodalEmotionTests(unittest.TestCase):
         self.assertTrue((preview[:, :40] == 18).all())
         self.assertTrue((preview[:, 350:] == 18).all())
         self.assertTrue((preview[:, 50:340] == 255).any())
+
+    def test_emotion_frame_can_render_as_browser_image(self):
+        frame = np.full((16, 16, 3), 180, dtype=np.uint8)
+
+        uri = _emotion_frame_data_uri(frame)
+
+        self.assertTrue(uri.startswith("data:image/jpeg;base64,"))
+
+    def test_preview_stream_url_uses_mjpeg_endpoint(self):
+        detector = EmotionDetector(preview_enabled=False)
+
+        url = detector.get_preview_stream_url()
+
+        self.assertRegex(url, r"^http://127\.0\.0\.1:\d+/emotion-preview\.mjpg$")
+
+    def test_empty_face_cascade_falls_back_to_full_frame(self):
+        class EmptyCascade:
+            def empty(self):
+                return True
+
+            def detectMultiScale(self, *_args, **_kwargs):
+                raise AssertionError("empty cascade should not be used")
+
+        detector = EmotionDetector(preview_enabled=False)
+        frame = np.full((24, 32, 3), 120, dtype=np.uint8)
+
+        face = detector._extract_face(frame, EmptyCascade())
+
+        self.assertIs(face, frame)
 
 
 if __name__ == "__main__":

@@ -240,6 +240,10 @@ def _logout() -> None:
     st.session_state.user_nickname = ""
     st.session_state.cloud_consent = False
     st.session_state.page = "home"
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
 
 
 def _render_proactive_controls() -> None:

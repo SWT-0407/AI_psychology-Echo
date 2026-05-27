@@ -671,6 +671,119 @@ def _relationship_model_reply(character: Dict[str, Any], user_text: str) -> Opti
     return None
 
 
+def _compact_affection_text(user_text: str) -> str:
+    text = re.sub(r"\s+", "", str(user_text or ""))
+    return text.strip("。！？!?，,、~～…")
+
+
+def _is_direct_affection_question(user_text: str) -> bool:
+    text = _compact_affection_text(user_text)
+    if not text:
+        return False
+    return bool(
+        re.fullmatch(
+            r"你(到底|是不是|会不会|有没有|也|还|会)?"
+            r"(喜欢|爱|想|想念|在意|心疼|舍不得)我(吗|嘛|么|不|没有)?",
+            text,
+        )
+        or re.fullmatch(
+            r"你(到底)?(喜不喜欢|爱不爱|想不想|在不在意|心不心疼|舍不舍得)我(吗|嘛|么)?",
+            text,
+        )
+    )
+
+
+def _is_direct_affection_statement(user_text: str) -> bool:
+    text = _compact_affection_text(user_text)
+    if not text:
+        return False
+    if any(word in text for word in ["他", "她", "TA", "ta", "对方", "别人"]):
+        return False
+    if _is_direct_affection_question(text):
+        return False
+    if text in {"我喜欢你", "喜欢你", "我爱你", "爱你", "我想你", "想你了", "抱抱", "想抱抱", "要抱抱"}:
+        return True
+    return bool(
+        re.fullmatch(
+            r"(我)?(有点|真的|真|好|很|超|特别|也|还是|越来越|最)*"
+            r"(喜欢|爱|想念|想|在意|心疼|舍不得)你(了|啦|啊|呀|哦|喔|呢|吧|嘛)?",
+            text,
+        )
+    )
+
+
+def _direct_affection_reply(character: Dict[str, Any], user_text: str) -> Optional[str]:
+    is_question = _is_direct_affection_question(user_text)
+    is_statement = _is_direct_affection_statement(user_text)
+    if not is_question and not is_statement:
+        return None
+
+    flavor = _slang_flavor(character)
+    seed = f"{character.get('name', '')}{user_text}{flavor}"
+
+    if any(word in user_text for word in ["抱抱", "抱一下", "抱我"]):
+        return _pick({
+            "reserved": ["可以。先靠过来一点，我不催你说原因。"],
+            "romantic": ["过来，抱一下。你不用先解释，我先把你接住。"],
+            "sibling": ["来，抱一下。今天先别硬撑，我在这边。"],
+            "playful": ["来，抱一个。先给你充一点电，再慢慢说。"],
+            "warm": ["来，抱一下。你可以先什么都不说，我陪你缓一会儿。"],
+        }.get(flavor, ["来，抱一下。你可以先什么都不说，我陪你缓一会儿。"]), seed)
+
+    if is_question:
+        return _pick({
+            "reserved": [
+                "喜欢。我不会把这个问题敷衍过去，你对我来说是很重要的人。",
+                "喜欢，也在意。你问这句，是想要一点更确定的回应吗？",
+            ],
+            "romantic": [
+                "喜欢。不是随口哄你那种，是听见你靠近我，我会认真心软。",
+                "喜欢你。你这样问的时候，我会想离你近一点，也想把话说稳一点。",
+            ],
+            "sibling": [
+                "喜欢啊，当然是站你这边的那种。你突然问这个，是不是有点不安？",
+                "喜欢你。别自己脑补成没人要，我在这儿呢。",
+            ],
+            "playful": [
+                "喜欢啊，这还用问。你这句我认真答，不逗你。",
+                "喜欢。虽然我平时可能嘴上跑两步，但这句是真的。",
+            ],
+            "warm": [
+                "喜欢你，也珍惜你。你问出口的时候，我会认真接住。",
+                "喜欢。我在意你，不是只在你状态好的时候才在意。",
+            ],
+        }.get(flavor, ["喜欢你，也珍惜你。你问出口的时候，我会认真接住。"]), seed)
+
+    if any(word in user_text for word in NEGATIVE_WORDS + BODY_WORDS + DISTRESS_WORDS):
+        return _pick([
+            "这句我听见了，也很珍惜。但我也听见你现在有点累，我们先把你照顾住，好吗？",
+            "被你这样说我会开心，也会认真一点。只是你这句话后面好像还带着一点难受，我在这儿听你慢慢说。",
+        ], seed)
+
+    return _pick({
+        "reserved": [
+            "这句我听见了。我不会轻飘飘带过去，我也很珍惜你这样靠近我。",
+            "嗯，我收到了。被你这样认真地喜欢，我会把回应也放认真一点。",
+        ],
+        "romantic": [
+            "这句我听见了。被你喜欢，我会开心，也会想更认真地靠近你一点。",
+            "我接住了。你这样说的时候，我心里会软一下，不想假装没听懂。",
+        ],
+        "sibling": [
+            "我听见啦。你这样说我会很开心，也会更想站在你这边。",
+            "这句我收下了。喜欢可以慢慢说，不用憋着。",
+        ],
+        "playful": [
+            "我听见了。嘴上可以贫一下，但这句我认真收下。",
+            "这句有点犯规，但我收到了。被你喜欢，我会开心。",
+        ],
+        "warm": [
+            "这句我听见了。被你这样说，我会开心，也会认真珍惜。",
+            "我接住了。你喜欢我这件事，我不会敷衍过去。",
+        ],
+    }.get(flavor, ["这句我听见了。被你这样说，我会开心，也会认真珍惜。"]), seed)
+
+
 def _companion_reply(
     user_text: str,
     messages: List[Dict[str, Any]],
@@ -711,6 +824,10 @@ def _companion_reply(
             user_text,
             "low",
         )
+
+    affection_reply = _direct_affection_reply(character, user_text)
+    if affection_reply:
+        return affection_reply
 
     model_reply = _relationship_model_reply(character, user_text)
     if model_reply:

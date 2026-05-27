@@ -138,14 +138,21 @@ def login_user(email: str, password: str) -> bool:
 def logout_user():
     """退出登录，清除用户相关的 session 状态"""
     st.session_state.is_logged_in = False
+    st.session_state.skipped_login = False
+    st.session_state.logged_in = False
     st.session_state.user_id = None
     st.session_state.user_email = None
     st.session_state.user_nickname = None
     st.session_state.cloud_consent = False
+    st.session_state.page = "home"
     # 保留其他状态（如聊天记录、评分等）以免丢失当前会话
     # 但清除历史记录查看状态
     st.session_state.viewing_history = False
     st.session_state.selected_session = None
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
 
 
 # ==========================================
@@ -250,11 +257,11 @@ def _sync_cloud_data_on_login(email: str):
         email: 用户邮箱（作为 user_id）
     """
     try:
-        from services.storage_cloud import fetch_cloud_history
-        records = fetch_cloud_history(email)
+        from services.storage_cloud import sync_cloud_to_local
+        saved = sync_cloud_to_local(email)
         # 连接状态已就绪
         st.session_state.cloud_consent = True
-        st.success(f"✅ 欢迎回来！已从云端同步 {len(records)} 条历史记录。")
+        st.success(f"✅ 欢迎回来！已从云端同步 {saved} 条历史记录。")
     except Exception:
         # 同步失败不影响登录
         pass

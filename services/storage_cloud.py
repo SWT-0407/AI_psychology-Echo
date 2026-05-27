@@ -239,14 +239,37 @@ def fetch_cloud_history(user_id=None):
 # 同步云端数据到本地缓存
 # ==========================================
 
-def sync_cloud_to_local():
+def _cloud_record_to_local_session(record):
+    messages = record.get("display_messages") or record.get("messages") or []
+    return {
+        "session_id": record.get("session_id", ""),
+        "id": record.get("session_id", ""),
+        "user_id": record.get("user_id"),
+        "timestamp": record.get("timestamp"),
+        "created_at": record.get("timestamp"),
+        "updated_at": record.get("synced_at") or record.get("timestamp"),
+        "display_messages": messages,
+        "messages": messages,
+        "scores": record.get("scores", {}),
+        "composite_score": record.get("composite_score", 0),
+        "level_name": record.get("level_name", ""),
+        "icon": record.get("icon", ""),
+        "label": record.get("label", ""),
+        "summary": record.get("summary", ""),
+        "ai_suggestion": record.get("ai_suggestion", ""),
+        "ai_direction": record.get("ai_direction", ""),
+        "from_cloud": True,
+    }
+
+
+def sync_cloud_to_local(user_id=None, records=None):
     """
     从云端拉取用户历史数据并缓存到本地
 
     Returns:
         int: 保存的记录数
     """
-    records = fetch_cloud_history()
+    records = fetch_cloud_history(user_id) if records is None else records
     if not records:
         return 0
 
@@ -256,22 +279,9 @@ def sync_cloud_to_local():
         session_id = record.get("session_id", "")
         if not session_id:
             continue
-        data = {
-            "session_id": session_id,
-            "user_id": record.get("user_id"),
-            "timestamp": record.get("timestamp"),
-            "display_messages": record.get("display_messages", []),
-            "scores": record.get("scores", {}),
-            "composite_score": record.get("composite_score", 0),
-            "level_name": record.get("level_name", ""),
-            "icon": record.get("icon", ""),
-            "label": record.get("label", ""),
-            "summary": record.get("summary", ""),
-            "ai_suggestion": record.get("ai_suggestion", ""),
-            "ai_direction": record.get("ai_direction", ""),
-            "from_cloud": True,
-        }
+        data = _cloud_record_to_local_session(record)
         save_complete_session(session_id, data)
+        _mark_session_synced(session_id)
         saved += 1
     return saved
 

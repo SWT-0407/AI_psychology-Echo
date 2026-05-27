@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -33,6 +34,49 @@ class LocalAiDialogueTests(unittest.TestCase):
 
         self.assertIn("\u53ea\u8865\u4e00\u4e2a\u5173\u952e\u7ebf\u7d22", reply)
         self.assertLessEqual(reply.count("\uff1f"), 2)
+
+    def test_companion_answers_direct_affection_before_support_template(self):
+        text = "我喜欢你"
+        messages = [{"role": "user", "content": text}]
+        scores = {key: 7 for key in ["x1", "x2", "x3", "x4", "x5", "x6"]}
+        character = {
+            "id": "char_test",
+            "name": "i",
+            "identity": "朋友",
+            "personality": "温柔、认真陪伴",
+            "speaking_style": "自然、像微信聊天一样简短亲近",
+            "relationship_stage": "初识",
+            "answer_model": {"relationship_intensity": "高"},
+        }
+
+        with patch(
+            "services.local_ai._profile_summary",
+            return_value={"risk_level": "medium", "tags": ["温柔陪伴"], "latest_emotion": "低落"},
+        ):
+            reply = generate_reply("companion", text, messages, scores, character)
+
+        self.assertIn("喜欢", reply)
+        self.assertTrue(any(marker in reply for marker in ["听见", "开心", "珍惜", "收下", "接住"]))
+        self.assertNotIn("最难受的一点", reply)
+
+    def test_companion_answers_you_like_me_question_as_direct_question(self):
+        text = "你喜欢我吗"
+        messages = [{"role": "user", "content": text}]
+        scores = {key: 7 for key in ["x1", "x2", "x3", "x4", "x5", "x6"]}
+        character = {
+            "id": "char_test",
+            "name": "i",
+            "identity": "朋友",
+            "speaking_style": "自然、像微信聊天一样简短亲近",
+            "answer_model": {"relationship_intensity": "高", "reply_strategy": "看主动性"},
+        }
+
+        with patch("services.local_ai._profile_summary", return_value={}):
+            reply = generate_reply("companion", text, messages, scores, character)
+
+        self.assertIn("喜欢", reply)
+        self.assertNotIn("像不像喜欢", reply)
+        self.assertNotIn("谁更主动", reply)
 
 
 if __name__ == "__main__":

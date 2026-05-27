@@ -90,11 +90,55 @@ TREEHOLE_CSS = """
     border: 1px dashed rgba(185,112,129,.28);
     background: rgba(255,255,255,.46);
 }
-div[class*="st-key-treehole_image_toggle"] button {
-    min-height: 42px !important;
+div[data-testid="column"]:has(.treehole-image-toggle-anchor) {
+    padding-top: 1.85rem !important;
+}
+div[data-testid="stElementContainer"]:has(.treehole-image-toggle-anchor) {
+    display: none !important;
+}
+div[data-testid="column"]:has(.treehole-image-toggle-anchor) div[data-testid="stElementContainer"]:has(div[data-testid="stButton"]),
+div[data-testid="column"]:has(.treehole-image-toggle-anchor) div[data-testid="stButton"],
+div[data-testid="column"]:has(.treehole-image-toggle-anchor) .stButton {
+    height: 96px !important;
+    min-height: 96px !important;
+    max-height: 96px !important;
+    margin: 0 !important;
     padding: 0 !important;
+    overflow: hidden !important;
+}
+div[data-testid="column"]:has(.treehole-image-toggle-anchor) button,
+div[data-testid="column"]:has(.treehole-image-toggle-anchor) [data-testid^="stBaseButton"] {
+    width: 48px !important;
+    min-width: 48px !important;
+    height: 96px !important;
+    min-height: 96px !important;
+    max-height: 96px !important;
+    box-sizing: border-box !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
     font-size: 24px !important;
-    border-radius: 8px !important;
+    line-height: 1 !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(185,112,129,.28) !important;
+    background: rgba(255,255,255,.62) !important;
+    color: #b97081 !important;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.72), 0 8px 18px rgba(185,112,129,.08) !important;
+}
+div[data-testid="column"]:has(.treehole-image-toggle-anchor) button *,
+div[data-testid="column"]:has(.treehole-image-toggle-anchor) [data-testid^="stBaseButton"] * {
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+}
+div[data-testid="column"]:has(.treehole-image-toggle-anchor) button:hover,
+div[data-testid="column"]:has(.treehole-image-toggle-anchor) button:focus,
+div[data-testid="column"]:has(.treehole-image-toggle-anchor) [data-testid^="stBaseButton"]:hover,
+div[data-testid="column"]:has(.treehole-image-toggle-anchor) [data-testid^="stBaseButton"]:focus {
+    border-color: rgba(185,112,129,.42) !important;
+    background: rgba(255,255,255,.82) !important;
+    color: #a85f73 !important;
 }
 .rating-line {
     max-width: 960px;

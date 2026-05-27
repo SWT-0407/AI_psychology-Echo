@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from services.app_storage import (
     list_history_records,
@@ -715,6 +716,13 @@ DIARY_CSS = """
     gap: 8px;
     margin: 8px 0 16px;
 }
+.calendar-modal .calendar-emoji-row {
+    display: grid !important;
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
 .calendar-emoji-row label {
     display: flex;
     flex-direction: column;
@@ -732,15 +740,42 @@ DIARY_CSS = """
     pointer-events: auto;
     transition: transform .12s ease, border-color .12s ease, background .12s ease, box-shadow .12s ease;
 }
+.calendar-modal .calendar-emoji-choice {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 2px !important;
+    min-height: 48px !important;
+    padding: 4px 6px !important;
+    border: 2px solid rgba(198, 148, 157, .52) !important;
+    border-radius: 12px !important;
+    background: rgba(255, 255, 255, .72) !important;
+    font-weight: 850 !important;
+    cursor: pointer !important;
+    user-select: none !important;
+    pointer-events: auto !important;
+    transition: transform .12s ease, border-color .12s ease, background .12s ease, box-shadow .12s ease !important;
+}
 .calendar-emoji-row label:hover {
     border-color: rgba(224, 106, 132, .9);
     background: #fff;
     transform: translateY(-1px);
 }
+.calendar-modal .calendar-emoji-choice:hover {
+    border-color: rgba(224, 106, 132, .9) !important;
+    background: #fff !important;
+    transform: translateY(-1px) !important;
+}
 .calendar-emoji-row label:has(input:checked) {
     border-color: #ef6f8f;
     background: #ffe6ee;
     box-shadow: 0 0 0 2px rgba(239, 111, 143, .18);
+}
+.calendar-modal .calendar-emoji-choice:has(input:checked) {
+    border-color: #ef6f8f !important;
+    background: #ffe6ee !important;
+    box-shadow: 0 0 0 2px rgba(239, 111, 143, .18) !important;
 }
 .calendar-emoji-glyph {
     font-size: 21px;
@@ -765,6 +800,22 @@ DIARY_CSS = """
     position: absolute;
     opacity: 0;
     pointer-events: none;
+}
+.calendar-modal .calendar-emoji-choice input[type="radio"] {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    margin: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+.calendar-modal input[type="radio"] {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    margin: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
 }
 .calendar-modal input[type="text"] {
     width: 100%;
@@ -886,7 +937,7 @@ DIARY_CSS = """
 .tpl-history-hotspot:hover {
     background: rgba(255, 204, 216, .16);
     outline: 2px dashed rgba(238, 113, 139, .62);
-    outline-offset: -5px;
+    outline-offset: 0;
 }
 .tpl-date-chip {
     position: absolute;
@@ -1102,7 +1153,8 @@ div[data-testid="stChatInput"] textarea {
 }
 .assessment-chat-shell {
     width: min(1100px, calc(100vw - 72px));
-    min-height: 560px;
+    height: clamp(560px, calc(100vh - 250px), 760px);
+    min-height: 0;
     margin: 0 auto;
     display: grid;
     grid-template-columns: 310px minmax(0, 1fr);
@@ -1116,6 +1168,7 @@ div[data-testid="stChatInput"] textarea {
     padding: 18px 16px;
     background: #fff6f8;
     border-right: 2px solid rgba(154, 106, 115, .22);
+    overflow-y: auto;
 }
 .assessment-title {
     color: #463a42;
@@ -1248,9 +1301,11 @@ div[data-testid="stChatInput"] textarea {
 }
 .assessment-dialog {
     min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     background: #f8fbfd;
+    overflow: hidden;
 }
 .assessment-dialog-head {
     padding: 16px 20px;
@@ -1268,17 +1323,24 @@ div[data-testid="stChatInput"] textarea {
     font-size: 13px;
 }
 .assessment-messages {
-    flex: 1;
-    min-height: 420px;
-    max-height: 560px;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;
+    justify-content: flex-start;
     padding: 20px;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+.assessment-messages::before {
+    content: "";
+    flex: 0 0 auto;
+    margin-top: auto;
 }
 .assessment-row {
     display: flex;
+    flex: 0 0 auto;
     gap: 10px;
     margin-bottom: 16px;
 }
@@ -1394,6 +1456,7 @@ div[data-testid="stForm"]:has(#assessment-input-anchor) .stButton > button:hover
     .history-card { height: 138px; }
     .assessment-chat-shell {
         width: 100%;
+        height: auto;
         grid-template-columns: 1fr;
     }
     .assessment-sidebar {
@@ -1402,6 +1465,11 @@ div[data-testid="stForm"]:has(#assessment-input-anchor) .stButton > button:hover
     }
     .assessment-bubble-wrap {
         max-width: 86%;
+    }
+    .assessment-messages {
+        flex: 0 0 auto;
+        height: 58vh;
+        min-height: 360px;
     }
     .intro-profile-floating div[data-testid="stForm"] {
         left: 15vw;
@@ -1429,9 +1497,17 @@ div[data-testid="stForm"]:has(#assessment-input-anchor) .stButton > button:hover
         grid-template-columns: repeat(auto-fit, minmax(66px, 1fr));
         gap: 7px;
     }
+    .calendar-modal .calendar-emoji-row {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        gap: 7px !important;
+    }
     .calendar-emoji-row label {
         min-height: 46px;
         padding-inline: 4px;
+    }
+    .calendar-modal .calendar-emoji-choice {
+        min-height: 46px !important;
+        padding-inline: 4px !important;
     }
     .diary-action-row {
         grid-template-columns: 1fr;
@@ -1733,9 +1809,20 @@ def render_calendar() -> None:
                     checked = " checked" if option == entry["emoji"] or (option == "" and not entry["emoji"]) else ""
                     label_class = "calendar-emoji-choice calendar-emoji-none" if option == "" else "calendar-emoji-choice"
                     glyph = "无" if option == "" else escape(option)
+                    label_style = (
+                        "display:flex!important;flex-direction:column!important;align-items:center!important;"
+                        "justify-content:center!important;gap:2px!important;min-height:48px!important;"
+                        "padding:4px 6px!important;border:2px solid rgba(198,148,157,.52)!important;"
+                        "border-radius:12px!important;background:rgba(255,255,255,.72)!important;"
+                        "font-weight:850!important;cursor:pointer!important;user-select:none!important;"
+                        "pointer-events:auto!important;box-sizing:border-box!important;"
+                    )
+                    if checked:
+                        label_style += "border-color:#ef6f8f!important;background:#ffe6ee!important;box-shadow:0 0 0 2px rgba(239,111,143,.18)!important;"
                     radios.append(
-                        f'<label class="{label_class}" title="{escape(label)}">'
-                        f'<input type="radio" name="mood_emoji" value="{escape(option)}"{checked}>'
+                        f'<label class="{label_class}" title="{escape(label)}" style="{label_style}">'
+                        f'<input type="radio" name="mood_emoji" value="{escape(option)}"{checked} '
+                        f'style="position:absolute;width:1px;height:1px;margin:0;opacity:0;pointer-events:none;">'
                         f'<span class="calendar-emoji-glyph">{glyph}</span>'
                         f'<span class="calendar-emoji-name">{escape(label)}</span>'
                         f'</label>'
@@ -1750,7 +1837,7 @@ def render_calendar() -> None:
                     f'<input type="hidden" name="mood_day" value="{key}">'
                     f'<div class="calendar-modal-title">给 {month} 月 {day} 日贴一小格心情</div>'
                     f'<div class="calendar-field-row"><span class="calendar-field-title">心情</span><span class="calendar-field-hint">选一个最贴近现在的感觉</span></div>'
-                    f'<div class="calendar-emoji-row">{"".join(radios)}</div>'
+                    f'<div class="calendar-emoji-row" style="display:grid!important;grid-template-columns:repeat(6,minmax(0,1fr))!important;gap:8px!important;margin:8px 0 16px!important;width:100%!important;box-sizing:border-box!important;">{"".join(radios)}</div>'
                     f'<label>小事件（30字内）</label>'
                     f'<input type="text" name="mood_event" value="{escape(entry["event"])}" maxlength="30" placeholder="今天发生的小事件...">'
                     f'<div class="calendar-modal-actions">'
@@ -1925,50 +2012,50 @@ def render_history() -> None:
     if _template_path("history"):
         history_slots = [
             {
-                "click": (4.0, 32.0, 42.0, 16.0),
-                "tags": (4.3, 38.5, 12.9, 8.8),
-                "content": (17.6, 32.2, 28.0, 15.3),
+                "click": (4.03, 32.97, 43.45, 21.98),
+                "tags": (4.3, 38.8, 12.9, 8.8),
+                "content": (17.6, 33.3, 29.6, 15.3),
             },
             {
-                "click": (4.0, 52.8, 42.0, 16.0),
-                "tags": (4.3, 59.5, 12.9, 8.8),
-                "content": (17.6, 53.0, 28.0, 15.3),
+                "click": (4.03, 54.95, 43.45, 21.73),
+                "tags": (4.3, 60.8, 12.9, 8.8),
+                "content": (17.6, 55.3, 29.6, 15.3),
             },
             {
-                "click": (4.0, 73.5, 42.0, 16.0),
-                "tags": (4.3, 80.6, 12.9, 8.6),
-                "content": (17.6, 73.8, 28.0, 15.2),
+                "click": (4.03, 76.68, 43.45, 21.86),
+                "tags": (4.3, 82.5, 12.9, 8.6),
+                "content": (17.6, 77.0, 29.6, 15.2),
             },
             {
-                "click": (52.2, 10.8, 43.8, 15.0),
-                "tags": (52.7, 16.2, 12.7, 8.1),
-                "content": (65.8, 11.0, 29.8, 14.3),
+                "click": (52.15, 11.11, 43.50, 21.86),
+                "tags": (52.7, 16.9, 12.7, 8.1),
+                "content": (65.8, 11.4, 29.8, 14.3),
             },
             {
-                "click": (52.2, 31.2, 43.8, 15.0),
-                "tags": (52.7, 36.5, 12.7, 8.1),
-                "content": (65.8, 31.4, 29.8, 14.3),
+                "click": (52.15, 32.97, 43.50, 22.10),
+                "tags": (52.7, 38.7, 12.7, 8.1),
+                "content": (65.8, 33.3, 29.8, 14.3),
             },
             {
-                "click": (52.2, 51.8, 43.8, 15.0),
-                "tags": (52.7, 57.1, 12.7, 8.1),
-                "content": (65.8, 52.0, 29.8, 14.3),
+                "click": (52.15, 55.07, 43.50, 21.61),
+                "tags": (52.7, 60.8, 12.7, 8.1),
+                "content": (65.8, 55.4, 29.8, 14.3),
             },
             {
-                "click": (52.2, 72.4, 43.8, 15.0),
-                "tags": (52.7, 77.7, 12.7, 8.1),
-                "content": (65.8, 72.6, 29.8, 14.3),
+                "click": (52.15, 76.68, 43.50, 21.86),
+                "tags": (52.7, 82.4, 12.7, 8.1),
+                "content": (65.8, 77.0, 29.8, 14.3),
             },
         ]
         overlay_parts = []
         date_slots = [
-            (4.0, 33.2, 13.6),
-            (4.0, 54.2, 13.6),
-            (4.0, 75.3, 13.6),
-            (52.2, 11.0, 13.6),
-            (52.2, 33.1, 13.6),
-            (52.2, 55.0, 13.6),
-            (52.2, 77.0, 13.6),
+            (4.03, 32.97, 13.54),
+            (4.03, 54.95, 13.54),
+            (4.03, 76.68, 13.54),
+            (52.15, 11.11, 13.54),
+            (52.15, 32.97, 13.54),
+            (52.15, 55.07, 13.54),
+            (52.15, 76.68, 13.54),
         ]
         for idx, dt in enumerate(fallback_dates):
             x, y, w = date_slots[idx]
@@ -2221,7 +2308,7 @@ def _assessment_chat_panel(messages: List[Dict[str, Any]], scores: Dict[str, int
         message
         for message in messages
         if message.get("role") in {"user", "assistant"} and str(message.get("content", "")).strip()
-    ][-24:]
+    ]
     if not visible_messages:
         visible_messages = [make_message("assistant", PSYTEST_INTRO_MESSAGE)]
     message_rows = "".join(_assessment_message_row(message) for message in visible_messages)
@@ -2251,6 +2338,24 @@ def _assessment_chat_panel(messages: List[Dict[str, Any]], scores: Dict[str, int
         </div>
         """
     st.markdown(_clean_html_fragment(panel_html), unsafe_allow_html=True)
+    components.html(
+        """
+        <script>
+        const scrollAssessmentMessagesToBottom = () => {
+            try {
+                const box = window.parent.document.querySelector(".assessment-messages");
+                if (box) {
+                    box.scrollTop = box.scrollHeight;
+                }
+            } catch (_) {
+                // Some iframe sandbox policies block parent access; manual scrolling still works.
+            }
+        };
+        window.setTimeout(scrollAssessmentMessagesToBottom, 60);
+        </script>
+        """,
+        height=0,
+    )
 
 
 def _history_dialog(messages: List[Dict[str, Any]], title: str, record: Dict[str, Any]) -> None:

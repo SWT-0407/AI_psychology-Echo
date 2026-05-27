@@ -78,12 +78,12 @@ class EmotionDetector:
         for key, item in FACE_EMOTION_LABELS.items()
     }
 
-    def __init__(self, camera_id=0, interval=2.0, preview_enabled=True):
+    def __init__(self, camera_id=0, interval=2.0, preview_enabled=False):
         """
         Args:
             camera_id: int, 摄像头编号
             interval: float, 两次 API 分析之间的最小间隔（秒）
-            preview_enabled: bool, 开启识别时是否弹出本机视频预览窗口
+            preview_enabled: bool, 是否额外使用 OpenCV 原生窗口预览
         """
         self.camera_id = camera_id
         self.interval = interval
@@ -91,6 +91,9 @@ class EmotionDetector:
         self.preview_window_name = "Echo 表情识别预览"
         self._preview_window_open = False
         self._preview_size = (320, 180)
+        self._stream_server = None
+        self._stream_thread = None
+        self._stream_url = ""
         self.camera = None
         self.running = False
         self.current_emotion = 'unknown'
@@ -230,6 +233,69 @@ class EmotionDetector:
             pass
         self._preview_window_open = False
 
+    def _encode_frame_jpeg(self, frame, quality=82):
+        if frame is None or getattr(frame, "size", 0) == 0:
+            return None
+        try:
+            import cv2
+            ok, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, int(quality)])
+            return buffer.tobytes() if ok else None
+        except Exception:
+            return None
+
+    def get_preview_stream_url(self):
+        if self._stream_url:
+            return self._stream_url
+        try:
+            import threading
+            import time
+            from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+            detector = self
+
+            class PreviewHandler(BaseHTTPRequestHandler):
+                def log_message(self, *_args):
+                    return
+
+                def do_GET(self):
+                    if not self.path.startswith("/emotion-preview.mjpg"):
+                        self.send_error(404)
+                        return
+
+                    self.send_response(200)
+                    self.send_header("Age", "0")
+                    self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                    self.send_header("Pragma", "no-cache")
+                    self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+                    self.end_headers()
+
+                    while detector.running:
+                        frame = detector.get_frame()
+                        jpg = detector._encode_frame_jpeg(frame)
+                        if jpg:
+                            try:
+                                self.wfile.write(b"--frame\r\n")
+                                self.wfile.write(b"Content-Type: image/jpeg\r\n")
+                                self.wfile.write(f"Content-Length: {len(jpg)}\r\n\r\n".encode("ascii"))
+                                self.wfile.write(jpg)
+                                self.wfile.write(b"\r\n")
+                                self.wfile.flush()
+                            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                                break
+                            except Exception:
+                                break
+                        time.sleep(0.08)
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), PreviewHandler)
+            self._stream_server = server
+            self._stream_url = f"http://127.0.0.1:{server.server_port}/emotion-preview.mjpg"
+            self._stream_thread = threading.Thread(target=server.serve_forever, daemon=True)
+            self._stream_thread.start()
+            return self._stream_url
+        except Exception:
+            self._stream_url = ""
+            return ""
+
     def _capture_loop(self):
         """
         摄像头捕获循环：
@@ -241,13 +307,7 @@ class EmotionDetector:
         import cv2
         import time
 
-        # 加载人脸检测器
-        face_cascade = None
-        try:
-            cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-            face_cascade = cv2.CascadeClassifier(cascade_path)
-        except Exception:
-            pass
+        face_cascade = self._load_face_cascade()
 
         while self.running:
             ret, frame = self.camera.read()
@@ -260,7 +320,10 @@ class EmotionDetector:
                 self.frame = frame.copy()
             self._show_preview_window(frame)
 
-            face_img = self._extract_face(frame, face_cascade)
+            try:
+                face_img = self._extract_face(frame, face_cascade)
+            except Exception:
+                face_img = frame
             if face_img is not None:
                 self._face_samples.append(face_img)
                 self._last_face_time = time.time()
@@ -276,17 +339,35 @@ class EmotionDetector:
 
             time.sleep(0.03)
 
+    def _load_face_cascade(self):
+        try:
+            import cv2
+            from pathlib import Path
+
+            cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
+            if not cascade_path.is_file():
+                return None
+            cascade = cv2.CascadeClassifier(str(cascade_path))
+            if cascade.empty():
+                return None
+            return cascade
+        except Exception:
+            return None
+
     def _extract_face(self, frame, face_cascade):
         import cv2
 
-        if face_cascade is None:
+        if face_cascade is None or (hasattr(face_cascade, "empty") and face_cascade.empty()):
             return frame
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.equalizeHist(gray)
-        faces = face_cascade.detectMultiScale(
-            gray, scaleFactor=1.08, minNeighbors=4, minSize=(90, 90)
-        )
+        try:
+            faces = face_cascade.detectMultiScale(
+                gray, scaleFactor=1.08, minNeighbors=4, minSize=(90, 90)
+            )
+        except Exception:
+            return frame
         if len(faces) == 0:
             return None
 
@@ -508,6 +589,9 @@ class MultimodalManager:
 
     def get_emotion_frame(self):
         return self.emotion.get_frame()
+
+    def get_emotion_stream_url(self):
+        return self.emotion.get_preview_stream_url()
 
     def cleanup(self):
         self.stop_emotion_detection()

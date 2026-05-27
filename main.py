@@ -10,7 +10,7 @@ from ui.treehole_page import render_treehole_page
 
 
 st.set_page_config(
-    page_title="心语 Echo",
+    page_title="心聆 Echo",
     page_icon="🌸",
     layout="wide",
     initial_sidebar_state="collapsed",
