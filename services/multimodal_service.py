@@ -5,7 +5,7 @@
 表情识别使用 千问视觉 API（qwen-vl-max），比本地 Haar/DeepFace 更准确。
 """
 import io
-from collections import Counter, deque
+from collections import deque
 
 
 class SpeechRecognizer:
@@ -76,7 +76,7 @@ class EmotionDetector:
         'surprise': '😮 惊讶', 'fear': '😨 恐惧', 'disgust': '🤢 厌恶',
         'surprised': '😮 惊讶', 'fearful': '😨 恐惧', 'disgusted': '🤢 厌恶',
         'neutral': '😐 平静', 'contempt': '😏 轻蔑', 'anxious': '😰 焦虑',
-        'tired': '😴 疲惫'
+        'tired': '😴 疲惫', 'unknown': '⚪ 未识别'
     }
 
     def __init__(self, camera_id=0, interval=2.0):
@@ -89,16 +89,21 @@ class EmotionDetector:
         self.interval = interval
         self.camera = None
         self.running = False
-        self.current_emotion = 'neutral'
-        self.current_emotion_cn = '😐 平静'
+        self.current_emotion = 'unknown'
+        self.current_emotion_cn = '⚪ 等待识别'
         self._emotion_vector = {
             'valence': 0.5, 'arousal': 0.5, 'dominance': 0.5,
             'anxiety': 0.0, 'fatigue': 0.0, 'engagement': 0.5,
         }
+        self.confidence = 0.0
+        self.status = 'waiting'
+        self.last_error = ''
+        self.last_analysis = ''
         self.last_detect_time = 0
         self._last_face_time = 0
         self.frame = None
         self._face_samples = deque(maxlen=5)
+        self._emotion_votes = deque(maxlen=4)
         self._lock = None
         self._cv2_available = False
         self._init_imports()
@@ -130,6 +135,16 @@ class EmotionDetector:
             # 给摄像头一点时间稳定画面
             import time
             time.sleep(0.5)
+            self.current_emotion = 'unknown'
+            self.current_emotion_cn = '⚪ 正在识别'
+            self.confidence = 0.0
+            self.status = 'detecting'
+            self.last_error = ''
+            self.last_analysis = ''
+            self.last_detect_time = 0
+            self._last_face_time = 0
+            self._face_samples.clear()
+            self._emotion_votes.clear()
             self.running = True
             import threading
             t = threading.Thread(target=self._capture_loop, daemon=True)
@@ -221,10 +236,10 @@ class EmotionDetector:
         import cv2
 
         prepared = []
-        for frame in frames[-5:]:
+        for frame in frames[-3:]:
             if frame is None or getattr(frame, "size", 0) == 0:
                 continue
-            resized = cv2.resize(frame, (256, 256), interpolation=cv2.INTER_AREA)
+            resized = cv2.resize(frame, (320, 320), interpolation=cv2.INTER_AREA)
             prepared.append(resized)
         if not prepared:
             return None
@@ -254,16 +269,76 @@ class EmotionDetector:
 
             self._apply_smoothed_result(result)
 
+        except Exception as exc:
+            self._set_unstable_state("api_error", "服务异常", f"{exc.__class__.__name__}: {exc}")
+
+    def _normalize_emotion(self, emotion):
+        aliases = {
+            "surprised": "surprise",
+            "fearful": "fear",
+            "disgusted": "disgust",
+            "calm": "neutral",
+            "normal": "neutral",
+            "uncertain": "unknown",
+        }
+        key = str(emotion or "unknown").strip().lower()
+        key = aliases.get(key, key)
+        return key if key in self.EMOTION_CN_MAP else "unknown"
+
+    def _safe_confidence(self, value):
+        try:
+            return max(0.0, min(1.0, float(value)))
         except Exception:
-            pass
+            return 0.0
+
+    def _set_unstable_state(self, status, analysis, error="", confidence=0.0):
+        self.status = status
+        self.confidence = confidence
+        self.last_analysis = analysis
+        self.last_error = error
+        self.current_emotion = "unknown"
+        parts = [self.EMOTION_CN_MAP["unknown"], analysis or "未能稳定识别"]
+        if status == "not_configured":
+            parts.append("请配置 QWEN_API_KEY")
+        elif error:
+            parts.append("请检查视觉服务")
+        parts.append(f"置信度 {confidence:.2f}")
+        self.current_emotion_cn = " | ".join(parts)
+
+    def _select_display_emotion(self, latest_emotion, latest_confidence):
+        if latest_emotion != "neutral" and latest_confidence >= 0.45:
+            return latest_emotion
+
+        scores = {}
+        for idx, (emotion, confidence) in enumerate(self._emotion_votes):
+            recency_weight = 1.0 + idx * 0.2
+            neutral_weight = 0.72 if emotion == "neutral" else 1.0
+            scores[emotion] = scores.get(emotion, 0.0) + confidence * recency_weight * neutral_weight
+
+        if not scores:
+            return latest_emotion
+        winner = max(scores, key=scores.get)
+        if winner == "neutral" and latest_emotion != "neutral" and latest_confidence >= 0.35:
+            return latest_emotion
+        return winner
 
     def _apply_smoothed_result(self, result):
-        confidence = float(result.get("confidence", 0.5) or 0.5)
-        if confidence < 0.25:
-            return
-        self.confidence = confidence
+        confidence = self._safe_confidence(result.get("confidence", 0.0))
+        emotion = self._normalize_emotion(result.get("emotion"))
+        status = str(result.get("status") or "ok").strip() or "ok"
+        analysis = str(result.get("analysis") or "").strip()
+        error = str(result.get("error") or "").strip()
 
-        alpha = 0.65 if confidence >= 0.6 else 0.45
+        if status != "ok" or emotion == "unknown" or confidence < 0.25:
+            self._set_unstable_state(status if status != "ok" else "uncertain", analysis, error, confidence)
+            return
+
+        self.confidence = confidence
+        self.status = "ok"
+        self.last_analysis = analysis
+        self.last_error = ""
+
+        alpha = 0.7 if confidence >= 0.6 else 0.55
         current = getattr(self, "_emotion_vector", {})
         new_vector = {}
         for key, default in {
@@ -280,14 +355,10 @@ class EmotionDetector:
 
         self._emotion_vector = new_vector
 
-        if not hasattr(self, "_emotion_votes"):
-            self._emotion_votes = deque(maxlen=4)
-        self._emotion_votes.append(result.get("emotion", "neutral"))
-        votes = Counter(self._emotion_votes)
-        self.current_emotion = votes.most_common(1)[0][0]
+        self._emotion_votes.append((emotion, confidence))
+        self.current_emotion = self._select_display_emotion(emotion, confidence)
 
-        emoji_cn = self.EMOTION_CN_MAP.get(self.current_emotion, '😐 平静')
-        analysis = result.get("analysis", "")
+        emoji_cn = self.EMOTION_CN_MAP.get(self.current_emotion, self.EMOTION_CN_MAP["unknown"])
         parts = [emoji_cn]
         if analysis:
             parts.append(analysis)
@@ -328,6 +399,9 @@ class EmotionDetector:
                 'anxiety': 0.0, 'fatigue': 0.0, 'engagement': 0.5,
             }),
             'confidence': getattr(self, 'confidence', 0.5),
+            'status': getattr(self, 'status', 'waiting'),
+            'analysis': getattr(self, 'last_analysis', ''),
+            'error': getattr(self, 'last_error', ''),
         }
 
     def get_frame(self):

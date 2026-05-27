@@ -1,181 +1,231 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
-LoRA 微调脚本：让模型内化心理学书籍思想
-基于 Qwen2.5-7B，使用 QLoRA 4-bit 量化
+QLoRA fine-tuning entrypoint for Echo.
+
+Default data:
+  data/finetune_ready/echo_sft_train.jsonl
+  data/finetune_ready/echo_sft_eval.jsonl
+
+Default output:
+  qwen_psychology_finetuned
 """
-import os
 import json
+import os
+from pathlib import Path
+from typing import Dict, List
+
 import torch
 from datasets import Dataset
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
+    BitsAndBytesConfig,
+    DataCollatorForSeq2Seq,
+    Trainer,
     TrainingArguments,
-    BitsAndBytesConfig
 )
-from peft import (
-    LoraConfig,
-    get_peft_model,
-    prepare_model_for_kbit_training,
-    TaskType
-)
-from trl import SFTTrainer
 
-# ========== 配置 ==========
-BASE_MODEL = "Qwen/Qwen2.5-7B-Instruct"  # 或 Qwen/Qwen2.5-3B-Instruct（需要更少显存）
-DATA_PATH = os.getenv("SFT_DATA_PATH", "data/finetune_ready/echo_sft_all.jsonl")
-OUTPUT_DIR = "./qwen_psychology_finetuned"
-USE_4BIT = True  # 启用 4-bit 量化，8GB 显存也能跑 7B 模型
-LORA_R = 16      # LoRA 秩
-LORA_ALPHA = 32  # LoRA 缩放参数
-MAX_LENGTH = 1024  # 最大输入长度
-BATCH_SIZE = 1      # 批量大小
-GRADIENT_ACCUM = 2  # 梯度累积
-EPOCHS = 5          # 训练轮数
-LEARNING_RATE = 2e-4
 
-# ========== 1. 准备数据集 ==========
-print("[1/5] 加载训练数据...")
-def load_dataset(path):
-    data = []
-    with open(path, "r", encoding="utf-8") as f:
+ROOT = Path(__file__).resolve().parent
+
+# 8GB 显存下 3B 更稳；如果要训练 7B，可在命令前设置 BASE_MODEL。
+BASE_MODEL = os.getenv("BASE_MODEL", "Qwen/Qwen2.5-3B-Instruct")
+TRAIN_PATH = Path(os.getenv("SFT_TRAIN_PATH", ROOT / "data" / "finetune_ready" / "echo_sft_train.jsonl"))
+EVAL_PATH = Path(os.getenv("SFT_EVAL_PATH", ROOT / "data" / "finetune_ready" / "echo_sft_eval.jsonl"))
+OUTPUT_DIR = Path(os.getenv("LORA_OUTPUT_DIR", ROOT / "qwen_psychology_finetuned"))
+
+MAX_LENGTH = int(os.getenv("MAX_LENGTH", "768"))
+EPOCHS = float(os.getenv("EPOCHS", "3"))
+MAX_STEPS = int(os.getenv("MAX_STEPS", "-1"))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "1"))
+GRADIENT_ACCUM = int(os.getenv("GRADIENT_ACCUM", "8"))
+LEARNING_RATE = float(os.getenv("LEARNING_RATE", "2e-4"))
+LORA_R = int(os.getenv("LORA_R", "16"))
+LORA_ALPHA = int(os.getenv("LORA_ALPHA", "32"))
+LORA_DROPOUT = float(os.getenv("LORA_DROPOUT", "0.05"))
+
+
+def load_jsonl(path: Path) -> List[Dict]:
+    rows: List[Dict] = []
+    with path.open("r", encoding="utf-8") as f:
         for line in f:
-            data.append(json.loads(line.strip()))
-    print(f"  共 {len(data)} 条训练数据")
-    
-    # 转换为 Qwen 对话格式，兼容 messages 与 instruction/output 两种数据。
-    formatted = []
-    for item in data:
-        if "messages" in item:
-            messages = item["messages"]
-        else:
-            instruction = item.get("instruction", "")
-            input_text = item.get("input", "")
-            user_text = instruction if not input_text else f"{instruction}\n\n{input_text}"
-            messages = [
-                {"role": "user", "content": user_text},
-                {"role": "assistant", "content": item["output"]},
-            ]
-        formatted.append({"messages": messages})
-    return formatted
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
 
-dataset = load_dataset(DATA_PATH)
 
-# ========== 2. 加载模型和分词器 ==========
-print("[2/5] 加载基座模型...")
-quant_config = None
-if USE_4BIT:
+def normalize_messages(item: Dict) -> List[Dict[str, str]]:
+    if "messages" in item:
+        return [
+            {"role": str(msg["role"]), "content": str(msg["content"])}
+            for msg in item["messages"]
+            if msg.get("role") in {"system", "user", "assistant"} and msg.get("content")
+        ]
+
+    instruction = str(item.get("instruction", "")).strip()
+    input_text = str(item.get("input", "")).strip()
+    user_text = instruction if not input_text else f"{instruction}\n\n{input_text}"
+    return [
+        {"role": "system", "content": "你是心语 Echo，一个温暖、具体、不过度诊断的心理陪伴助手。"},
+        {"role": "user", "content": user_text},
+        {"role": "assistant", "content": str(item.get("output", "")).strip()},
+    ]
+
+
+def build_tokenizer():
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "right"
+    return tokenizer
+
+
+def preprocess_dataset(rows: List[Dict], tokenizer) -> Dataset:
+    def encode(item: Dict) -> Dict:
+        messages = normalize_messages(item)
+        assistant_index = next(
+            (idx for idx in range(len(messages) - 1, -1, -1) if messages[idx]["role"] == "assistant"),
+            len(messages) - 1,
+        )
+        prompt_messages = messages[:assistant_index]
+        full_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+        prompt_text = tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
+
+        full = tokenizer(full_text, truncation=True, max_length=MAX_LENGTH, add_special_tokens=False)
+        prompt = tokenizer(prompt_text, truncation=True, max_length=MAX_LENGTH, add_special_tokens=False)
+
+        input_ids = full["input_ids"]
+        attention_mask = full["attention_mask"]
+        labels = input_ids.copy()
+        prompt_len = min(len(prompt["input_ids"]), len(labels))
+        labels[:prompt_len] = [-100] * prompt_len
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": labels,
+        }
+
+    return Dataset.from_list(rows).map(encode, remove_columns=list(rows[0].keys()))
+
+
+def build_model():
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA 不可用。请先安装 CUDA 版 PyTorch，或改用云端 GPU。")
+
     quant_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_compute_dtype=torch.float16,
         bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type="nf4"
+        bnb_4bit_quant_type="nf4",
     )
 
-model = AutoModelForCausalLM.from_pretrained(
-    BASE_MODEL,
-    quantization_config=quant_config,
-    device_map="auto",
-    trust_remote_code=True,
-    torch_dtype=torch.float16
-)
-tokenizer = AutoTokenizer.from_pretrained(
-    BASE_MODEL,
-    trust_remote_code=True,
-    padding_side="right"
-)
-
-# 设置 padding token（Qwen2.5 可能需要）
-if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.eos_token
-
-# 为 kbit 训练准备模型
-if USE_4BIT:
-    model = prepare_model_for_kbit_training(model)
-
-# ========== 3. 配置 LoRA ==========
-print("[3/5] 配置 LoRA...")
-lora_config = LoraConfig(
-    r=LORA_R,
-    lora_alpha=LORA_ALPHA,
-    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-    lora_dropout=0.05,
-    bias="none",
-    task_type=TaskType.CAUSAL_LM
-)
-model = get_peft_model(model, lora_config)
-model.print_trainable_parameters()  # 显示可训练参数量
-
-# ========== 4. 格式化函数 ==========
-def format_chat_template(example):
-    """将 messages 格式转为文本"""
-    text = tokenizer.apply_chat_template(
-        example["messages"],
-        tokenize=False,
-        add_generation_prompt=False
+    model = AutoModelForCausalLM.from_pretrained(
+        BASE_MODEL,
+        quantization_config=quant_config,
+        device_map="auto",
+        trust_remote_code=True,
+        torch_dtype=torch.float16,
     )
-    return {"text": text}
+    model.config.use_cache = False
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
 
-# 转换为 HuggingFace Dataset
-hf_dataset = Dataset.from_list(dataset)
-hf_dataset = hf_dataset.map(format_chat_template)
+    lora_config = LoraConfig(
+        r=LORA_R,
+        lora_alpha=LORA_ALPHA,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        lora_dropout=LORA_DROPOUT,
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
+    model = get_peft_model(model, lora_config)
+    model.print_trainable_parameters()
+    return model
 
-# 分割训练/验证集
-split_dataset = hf_dataset.train_test_split(test_size=0.1, seed=42)
-train_dataset = split_dataset["train"]
-eval_dataset = split_dataset["test"]
-print(f"  训练集: {len(train_dataset)} 条, 验证集: {len(eval_dataset)} 条")
 
-# ========== 5. 配置训练参数并开始训练 ==========
-print("[4/5] 配置训练参数...")
-training_args = TrainingArguments(
-    output_dir=OUTPUT_DIR,
-    per_device_train_batch_size=BATCH_SIZE,
-    per_device_eval_batch_size=BATCH_SIZE,
-    gradient_accumulation_steps=GRADIENT_ACCUM,
-    num_train_epochs=EPOCHS,
-    learning_rate=LEARNING_RATE,
-    fp16=True,
-    save_steps=20,
-    logging_steps=5,
-    evaluation_strategy="steps",
-    eval_steps=20,
-    save_total_limit=2,
-    load_best_model_at_end=True,
-    report_to="none",  # 禁用 wandb 等
-    remove_unused_columns=False,
-    optim="adamw_torch",
-    lr_scheduler_type="cosine",
-    warmup_ratio=0.1,
-)
+def main() -> None:
+    print("=" * 60)
+    print("Echo QLoRA fine-tuning")
+    print(f"Base model: {BASE_MODEL}")
+    print(f"Train data: {TRAIN_PATH}")
+    print(f"Eval data:  {EVAL_PATH}")
+    print(f"Output dir: {OUTPUT_DIR}")
+    print(f"CUDA: {torch.cuda.is_available()} | {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none'}")
+    print("=" * 60)
 
-trainer = SFTTrainer(
-    model=model,
-    args=training_args,
-    train_dataset=train_dataset,
-    eval_dataset=eval_dataset,
-    tokenizer=tokenizer,
-    max_seq_length=MAX_LENGTH,
-    formatting_func=format_chat_template,
-    dataset_text_field="text",  # 不使用 dataset_text_field，使用 formatting_func
-)
+    train_rows = load_jsonl(TRAIN_PATH)
+    eval_rows = load_jsonl(EVAL_PATH)
+    print(f"Loaded train={len(train_rows)}, eval={len(eval_rows)}")
 
-# ========== 6. 开始训练 ==========
-print("[5/5] 开始训练...")
-print(f"  基座模型: {BASE_MODEL}")
-print(f"  训练轮数: {EPOCHS}")
-print(f"  批次大小: {BATCH_SIZE} (有效批次: {BATCH_SIZE * GRADIENT_ACCUM})")
-print(f"  LoRA 秩: {LORA_R}")
-print("=" * 50)
+    tokenizer = build_tokenizer()
+    train_dataset = preprocess_dataset(train_rows, tokenizer)
+    eval_dataset = preprocess_dataset(eval_rows, tokenizer)
+    model = build_model()
 
-trainer.train()
+    args = TrainingArguments(
+        output_dir=str(OUTPUT_DIR),
+        per_device_train_batch_size=BATCH_SIZE,
+        per_device_eval_batch_size=1,
+        gradient_accumulation_steps=GRADIENT_ACCUM,
+        num_train_epochs=EPOCHS,
+        max_steps=MAX_STEPS,
+        learning_rate=LEARNING_RATE,
+        fp16=True,
+        gradient_checkpointing=True,
+        logging_steps=10,
+        eval_strategy="steps",
+        eval_steps=50,
+        save_strategy="steps",
+        save_steps=50,
+        save_total_limit=2,
+        report_to="none",
+        optim="paged_adamw_8bit",
+        lr_scheduler_type="cosine",
+        warmup_ratio=0.05,
+        remove_unused_columns=False,
+        dataloader_num_workers=0,
+    )
 
-# 保存最终模型
-trainer.save_model(OUTPUT_DIR)
-tokenizer.save_pretrained(OUTPUT_DIR)
-print(f"\n训练完成！模型已保存至: {OUTPUT_DIR}")
-print(f"\n使用方法：")
-print(f"  from transformers import AutoModelForCausalLM, AutoTokenizer")
-print(f"  from peft import PeftModel")
-print(f"  model = AutoModelForCausalLM.from_pretrained('{BASE_MODEL}', device_map='auto')")
-print(f"  model = PeftModel.from_pretrained(model, '{OUTPUT_DIR}')")
+    data_collator = DataCollatorForSeq2Seq(
+        tokenizer=tokenizer,
+        padding=True,
+        pad_to_multiple_of=8,
+        label_pad_token_id=-100,
+        return_tensors="pt",
+    )
+
+    trainer = Trainer(
+        model=model,
+        args=args,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        tokenizer=tokenizer,
+        data_collator=data_collator,
+    )
+
+    trainer.train()
+    trainer.save_model(str(OUTPUT_DIR))
+    tokenizer.save_pretrained(str(OUTPUT_DIR))
+    (OUTPUT_DIR / "echo_training_config.json").write_text(
+        json.dumps(
+            {
+                "base_model": BASE_MODEL,
+                "train_path": str(TRAIN_PATH),
+                "eval_path": str(EVAL_PATH),
+                "max_length": MAX_LENGTH,
+                "epochs": EPOCHS,
+                "batch_size": BATCH_SIZE,
+                "gradient_accumulation": GRADIENT_ACCUM,
+                "learning_rate": LEARNING_RATE,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(f"训练完成，LoRA 已保存至: {OUTPUT_DIR}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,9 @@
+============================================================
+Echo QLoRA fine-tuning
+Base model: Qwen/Qwen2.5-3B-Instruct
+Train data: E:\Users\ár\PycharmProjects\PythonProject6\data\finetune_ready\echo_sft_train.jsonl
+Eval data:  E:\Users\ár\PycharmProjects\PythonProject6\data\finetune_ready\echo_sft_eval.jsonl
+Output dir: E:\Users\ár\PycharmProjects\PythonProject6\qwen_psychology_finetuned
+CUDA: True | NVIDIA GeForce RTX 5060 Laptop GPU
+============================================================
+Loaded train=983, eval=85

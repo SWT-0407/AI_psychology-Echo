@@ -222,6 +222,11 @@ HUMAN_TEXTURE_MARKERS = (
     "我这会儿",
     "我本来",
     "我先把",
+    "刚忙完",
+    "刚从",
+    "白天消息",
+    "深夜",
+    "今天醒",
     "等下",
     "换个说法",
     "认真看",
@@ -483,9 +488,11 @@ def _with_persona_slang(reply: str, character: Dict[str, Any], user_text: str = 
         return reply
     original_reply = reply
     reply = _with_human_texture(reply, character, user_text, tone)
-    if reply != original_reply and tone in {"low", "tired", "normal", "proactive"}:
+    if reply != original_reply:
         return reply
     if not _slang_enabled(character):
+        return reply
+    if _has_human_texture(reply):
         return reply
     if any(marker in reply for marker in SLANG_MARKERS):
         return reply

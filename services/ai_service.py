@@ -236,6 +236,9 @@ def analyze_facial_expression(image_bytes, detail="low"):
     scale_desc = build_face_scale_description()
     prompt = EMOTION_ANALYSIS_PROMPT.format(face_scale_desc=scale_desc)
 
+    if not QWEN_API_KEY:
+        return _emotion_error_result("not_configured", "API未配置", "QWEN_API_KEY 未配置")
+
     try:
         client = get_qwen_client()
         base64_image = base64.b64encode(image_bytes).decode("utf-8")
@@ -263,28 +266,32 @@ def analyze_facial_expression(image_bytes, detail="low"):
         json_match = re.search(r'\{.*\}', raw, re.DOTALL)
         if json_match:
             result = json.loads(json_match.group())
+            emotion = _normalize_face_emotion(result.get("emotion"))
+            confidence = _clamp01(result.get("confidence", 0.5))
+            status = "ok" if emotion != "unknown" and confidence >= 0.25 else "uncertain"
             return {
-                "emotion": result.get("emotion", "neutral"),
-                "emotion_cn": result.get("emotion_cn", "平静"),
+                "emotion": emotion,
+                "emotion_cn": str(result.get("emotion_cn") or _FACE_EMOTION_CN[emotion]).strip(),
                 "valence": _clamp01(result.get("valence", 0.5)),
                 "arousal": _clamp01(result.get("arousal", 0.5)),
                 "dominance": _clamp01(result.get("dominance", 0.5)),
                 "anxiety": _clamp01(result.get("anxiety", 0.0)),
                 "fatigue": _clamp01(result.get("fatigue", 0.0)),
                 "engagement": _clamp01(result.get("engagement", 0.5)),
-                "confidence": _clamp01(result.get("confidence", 0.5)),
+                "confidence": confidence,
                 "analysis": result.get("analysis", ""),
+                "status": status,
+                "error": "",
             }
-    except Exception:
-        pass
+        return _emotion_error_result("parse_error", "结果无效", "视觉模型未返回可解析 JSON")
+    except Exception as exc:
+        return _emotion_error_result(
+            "api_error",
+            "服务异常",
+            f"{exc.__class__.__name__}: {exc}",
+        )
 
-    return {
-        "emotion": "neutral", "emotion_cn": "平静",
-        "valence": 0.5, "arousal": 0.5, "dominance": 0.5,
-        "anxiety": 0.0, "fatigue": 0.0, "engagement": 0.5,
-        "confidence": 0.0,
-        "analysis": "",
-    }
+    return _emotion_error_result("unknown", "未识别")
 
 
 def _clamp01(value, default=0.5):

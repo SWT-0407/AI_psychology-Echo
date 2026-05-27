@@ -486,6 +486,8 @@ def update_profile_from_session(
     if integrated_assessment:
         snapshot["integrated_assessment"] = {
             "overall_index": integrated_assessment.get("overall_index"),
+            "health_index": integrated_assessment.get("health_index"),
+            "concern_index": integrated_assessment.get("concern_index"),
             "final_level": integrated_assessment.get("final_level"),
             "functional_level": (integrated_assessment.get("functional_impairment") or {}).get("level"),
             "risk_level": (integrated_assessment.get("risk_protection_gate") or {}).get("level"),
@@ -663,7 +665,8 @@ def get_profile_summary() -> Dict[str, Any]:
         "level": assessment.get("level") or "暂无评估",
         "overall_score": assessment.get("overall_score"),
         "integrated_level": integrated.get("final_level", ""),
-        "concern_index": integrated.get("overall_index"),
+        "health_index": integrated.get("health_index", integrated.get("overall_index")),
+        "concern_index": integrated.get("concern_index"),
         "functional_level": (integrated.get("functional_impairment") or {}).get("level", ""),
         "safety_gate_level": (integrated.get("risk_protection_gate") or {}).get("level", ""),
         "latest_emotion": latest_emotion,

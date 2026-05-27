@@ -2,8 +2,10 @@
 Structured six-dimension psychological assessment helpers.
 
 The app uses a 0-10 "wellbeing" score in existing UI components, where higher
-means more stable. This module converts that score into a 0-100 "concern"
-score, then adds functional impairment (F) and a safety/protection gate (R).
+means more stable. This module keeps the same direction and expands it into a
+0-100 health score for each dimension, then adds functional impairment (F) and a
+safety/protection gate (R). Internal concern scores are still kept for risk
+calibration, but user-facing dimension scores always mean "higher is healthier".
 
 This is a screening and reflection aid, not a clinical diagnosis engine.
 """
@@ -33,46 +35,46 @@ DIMENSION_WEIGHTS = {
 
 DIMENSION_ANCHORS = {
     "x1": {
-        0: "情绪基本稳定",
-        1: "偶有情绪波动",
-        2: "低落、烦躁或麻木较频繁",
-        3: "持续低落、麻木、易怒或愉悦感明显下降",
-        4: "几乎每天严重受困，情绪难以自行缓和",
+        0: "情绪严重受扰，需要优先获得支持",
+        1: "情绪波动明显，需要更多照顾",
+        2: "情绪有起伏，但仍有一定调节空间",
+        3: "情绪整体稳定，偶有波动",
+        4: "情绪积极平稳，恢复力较好",
     },
     "x2": {
-        0: "压力可控",
-        1: "偶尔紧张或担忧",
-        2: "担忧明显增加",
-        3: "焦虑影响睡眠、专注或决策",
-        4: "强烈失控感、惊恐感或持续高压",
+        0: "压力高度失控或惊恐感强",
+        1: "焦虑压力明显影响睡眠、专注或决策",
+        2: "担忧有所增加，但仍可部分调节",
+        3: "压力基本可控，能较快回到稳定",
+        4: "放松安心，压力调节能力较好",
     },
     "x3": {
-        0: "睡眠、食欲、精力基本正常",
-        1: "轻微生理波动",
-        2: "睡眠、食欲或精力明显受影响",
-        3: "持续失眠、疲惫或躯体不适",
-        4: "生理状态严重紊乱，明显影响日常运转",
+        0: "睡眠、食欲或精力严重紊乱",
+        1: "持续失眠、疲惫或躯体不适",
+        2: "睡眠、食欲或精力有波动",
+        3: "身体节律基本稳定",
+        4: "睡眠、食欲、精力状态良好",
     },
     "x4": {
-        0: "行动力和生活节律正常",
-        1: "轻微拖延或兴趣下降",
-        2: "效率下降、兴趣减少或启动困难",
-        3: "明显回避、难以启动任务",
-        4: "日常任务、自理或基本责任受到明显影响",
+        0: "日常任务、自理或基本责任明显受影响",
+        1: "行动启动困难或回避明显",
+        2: "效率和兴趣有下降，但仍能推进部分事项",
+        3: "行动力和生活节律基本稳定",
+        4: "行动积极，动力与执行较好",
     },
     "x5": {
-        0: "支持稳定，能主动求助",
-        1: "有小冲突但仍可求助",
-        2: "支持有限或不太愿意求助",
-        3: "孤立感强，人际冲突明显",
-        4: "几乎无可用支持，或关系环境不安全",
+        0: "支持资源很少或关系环境不安全",
+        1: "孤立感强或人际冲突明显",
+        2: "支持有限，求助意愿仍需增强",
+        3: "有可用支持，偶有冲突但能连接",
+        4: "支持稳定，能主动求助",
     },
     "x6": {
-        0: "自我评价和意义感基本稳定",
-        1: "偶有自我怀疑",
-        2: "反复自责、反刍或灾难化",
-        3: "明显无助、无望或未来感下降",
-        4: "强烈无价值感，未来感封闭",
+        0: "无价值感或无望感强，需要优先支持",
+        1: "自责、无助或未来感下降明显",
+        2: "意义感有波动，仍保留一些方向",
+        3: "自我评价和意义感基本稳定",
+        4: "目标、希望和意义感较清晰",
     },
 }
 
@@ -205,16 +207,28 @@ def _matched_terms(text: str, terms: Sequence[str]) -> List[str]:
     return [term for term in terms if _normalize_text(term) in normalized]
 
 
-def _severity_anchor(score: float) -> int:
-    if score >= 75:
+def _health_anchor(score: float) -> int:
+    if score >= 85:
         return 4
-    if score >= 50:
+    if score >= 70:
         return 3
-    if score >= 25:
+    if score >= 55:
         return 2
-    if score >= 10:
+    if score >= 40:
         return 1
     return 0
+
+
+def health_level(score: float) -> str:
+    if score >= 85:
+        return "能量充足"
+    if score >= 70:
+        return "状态稳定"
+    if score >= 55:
+        return "轻微波动"
+    if score >= 40:
+        return "需要照顾"
+    return "建议求助"
 
 
 def concern_level(score: float) -> str:
@@ -234,9 +248,14 @@ def _coerce_wellbeing_score(value: Any) -> float:
         return 5.0
 
 
+def wellbeing_to_health(value: Any) -> float:
+    """Convert existing 0-10 wellbeing score into 0-100 health score."""
+    return round(_coerce_wellbeing_score(value) * 10.0, 1)
+
+
 def wellbeing_to_concern(value: Any) -> float:
     """Convert existing 0-10 wellbeing score into 0-100 concern score."""
-    return round((10.0 - _coerce_wellbeing_score(value)) * 10.0, 1)
+    return round(100.0 - wellbeing_to_health(value), 1)
 
 
 def _dimension_evidence(text: str, dimension: str) -> Tuple[int, List[str]]:
@@ -252,20 +271,43 @@ def _dimension_evidence(text: str, dimension: str) -> Tuple[int, List[str]]:
     return delta, evidence
 
 
+def _dimension_concern_score(item: Dict[str, Any]) -> float:
+    try:
+        return _clamp(float(item.get("concern_score")))
+    except (TypeError, ValueError):
+        try:
+            return _clamp(100.0 - float(item.get("score", 50)))
+        except (TypeError, ValueError):
+            return 50.0
+
+
+def _dimension_health_score(item: Dict[str, Any]) -> float:
+    try:
+        return _clamp(float(item.get("score")))
+    except (TypeError, ValueError):
+        try:
+            return _clamp(100.0 - float(item.get("concern_score", 50)))
+        except (TypeError, ValueError):
+            return 50.0
+
+
 def score_dimensions(scores: Dict[str, Any], messages: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     text = _message_text(messages, user_only=True)
     result: Dict[str, Dict[str, Any]] = {}
     for key, label in DIMENSION_LABELS.items():
-        base = wellbeing_to_concern(scores.get(key, 5))
+        base_health = wellbeing_to_health(scores.get(key, 5))
         delta, evidence = _dimension_evidence(text, key)
-        concern = round(_clamp(base + delta), 1)
-        anchor = _severity_anchor(concern)
+        concern = round(_clamp(100.0 - base_health + delta), 1)
+        health = round(_clamp(100.0 - concern), 1)
+        anchor = _health_anchor(health)
         result[key] = {
             "label": label,
-            "score": concern,
-            "level": concern_level(concern),
+            "score": health,
+            "level": health_level(health),
             "anchor": anchor,
             "anchor_text": DIMENSION_ANCHORS[key][anchor],
+            "concern_score": concern,
+            "concern_level": concern_level(concern),
             "evidence": evidence[:4],
         }
     return result
@@ -281,21 +323,21 @@ def assess_functional_impairment(messages: Iterable[Dict[str, Any]], dimension_p
             points += weight
             evidence.append(f"{label}：{'、'.join(matches[:3])}")
 
-    x3 = float(dimension_profile.get("x3", {}).get("score", 0) or 0)
-    x4 = float(dimension_profile.get("x4", {}).get("score", 0) or 0)
+    x3 = _dimension_concern_score(dimension_profile.get("x3", {}))
+    x4 = _dimension_concern_score(dimension_profile.get("x4", {}))
     if x3 >= 75 or x4 >= 75:
         points += 1
-        evidence.append("生理状态或行动力困扰已达到重度锚点")
+        evidence.append("生理状态或行动力健康分过低")
     elif x3 >= 60 and x4 >= 60:
         points += 1
         evidence.append("生理状态与行动力同时明显受影响")
 
     if points >= 3:
         level, label = "F3", "重度功能受损"
-        minimum_level = "中高"
+        minimum_level = "需要照顾"
     elif points >= 2:
         level, label = "F2", "中度功能受损"
-        minimum_level = "中度"
+        minimum_level = "轻微波动"
     elif points >= 1:
         level, label = "F1", "轻度功能受损"
         minimum_level = None
@@ -346,19 +388,19 @@ def assess_risk_protection(messages: Iterable[Dict[str, Any]]) -> Dict[str, Any]
         level = "R3"
         label = "高风险"
         override = True
-        minimum_final_level = "高"
+        minimum_final_level = "建议求助"
         action = "进入危机干预流程，优先确认当前安全并连接现实支持。"
     elif self_harm and not negated:
         level = "R2"
         label = "中度风险"
         override = False
-        minimum_final_level = "中高"
+        minimum_final_level = "需要照顾"
         action = "建议人工复核或专业介入，并持续确认短期安全。"
     elif passive_death or (hopeless and len(protective) <= 1):
         level = "R2"
         label = "中度风险"
         override = False
-        minimum_final_level = "中高"
+        minimum_final_level = "需要照顾"
         action = "需要主动追问是否存在自伤想法、计划、手段和可联系支持。"
     elif hopeless:
         level = "R1"
@@ -384,23 +426,15 @@ def assess_risk_protection(messages: Iterable[Dict[str, Any]]) -> Dict[str, Any]
     }
 
 
-FINAL_LEVEL_ORDER = ["轻微", "轻度", "中度", "中高", "高"]
+FINAL_LEVEL_ORDER = ["能量充足", "状态稳定", "轻微波动", "需要照顾", "建议求助"]
 
 
 def _base_final_level(index: float) -> str:
-    if index >= 75:
-        return "高"
-    if index >= 60:
-        return "中高"
-    if index >= 45:
-        return "中度"
-    if index >= 25:
-        return "轻度"
-    return "轻微"
+    return health_level(index)
 
 
 def _max_level(*levels: Optional[str]) -> str:
-    current = "轻微"
+    current = "能量充足"
     for level in levels:
         if level not in FINAL_LEVEL_ORDER:
             continue
@@ -412,17 +446,24 @@ def _max_level(*levels: Optional[str]) -> str:
 def _overall_index(dimension_profile: Dict[str, Dict[str, Any]]) -> float:
     total = 0.0
     for key, weight in DIMENSION_WEIGHTS.items():
-        total += float(dimension_profile.get(key, {}).get("score", 50) or 50) * weight
+        total += _dimension_health_score(dimension_profile.get(key, {})) * weight
+    return round(_clamp(total), 1)
+
+
+def _overall_concern_index(dimension_profile: Dict[str, Dict[str, Any]]) -> float:
+    total = 0.0
+    for key, weight in DIMENSION_WEIGHTS.items():
+        total += _dimension_concern_score(dimension_profile.get(key, {})) * weight
     return round(_clamp(total), 1)
 
 
 def _main_concerns(dimension_profile: Dict[str, Dict[str, Any]], limit: int = 3) -> List[str]:
     ranked = sorted(
         dimension_profile.values(),
-        key=lambda item: float(item.get("score", 0) or 0),
+        key=lambda item: _dimension_concern_score(item),
         reverse=True,
     )
-    return [f"{item['label']}（{item['level']}）" for item in ranked if item.get("score", 0) >= 40][:limit]
+    return [f"{item['label']}（{item['level']}）" for item in ranked if _dimension_concern_score(item) >= 40][:limit]
 
 
 def _recommendations(final_level: str, functional: Dict[str, Any], risk: Dict[str, Any]) -> List[str]:
@@ -438,21 +479,21 @@ def _recommendations(final_level: str, functional: Dict[str, Any], risk: Dict[st
             "继续直接确认是否有计划、手段、近期意图，以及接下来几个小时能否保证安全。",
             "强化保护因素：确认一个可以现在联系的人，并安排短期复评。",
         ]
-    if final_level in {"中高", "高"} or functional.get("level") in {"F2", "F3"}:
+    if final_level in {"需要照顾", "建议求助"} or functional.get("level") in {"F2", "F3"}:
         return [
             "建议预约心理咨询或学校心理中心，优先处理影响学习、工作和生活的部分。",
             "在 7 天内复评六维状态、睡眠和功能受损变化。",
             "把目标拆到最小行动，例如规律进食、短时出门、联系一个可信任的人。",
         ]
-    if final_level == "中度":
+    if final_level == "轻微波动":
         return [
             "建议持续记录情绪、睡眠、压力源和行动力变化。",
-            "选择一个最主要困扰进行小步干预，并在 7-14 天内复评。",
+            "选择一个健康分较低的维度进行小步干预，并在 7-14 天内复评。",
             "鼓励向可信任的人表达当前状态，减少独自承受。",
         ]
     return [
         "维持常规自我观察，关注压力、睡眠和社交支持变化。",
-        "当困扰持续升高或功能受损加重时，及时复评或寻求支持。",
+        "当健康分持续下降或功能受损加重时，及时复评或寻求支持。",
     ]
 
 
@@ -468,8 +509,7 @@ def build_interview_guidance(assessment: Dict[str, Any]) -> Dict[str, Any]:
     else:
         top = sorted(
             dimensions.values(),
-            key=lambda item: float(item.get("score", 0) or 0),
-            reverse=True,
+            key=lambda item: _dimension_health_score(item),
         )[:2]
         for item in top:
             label = item.get("label", "这个部分")
@@ -507,19 +547,22 @@ def build_integrated_assessment(
     functional = assess_functional_impairment(messages or [], dimension_profile)
     risk = assess_risk_protection(messages or [])
     index = _overall_index(dimension_profile)
+    concern_index = _overall_concern_index(dimension_profile)
     base_level = _base_final_level(index)
 
     if risk.get("override"):
-        final_level = "高"
+        final_level = "建议求助"
     else:
         final_level = _max_level(base_level, functional.get("minimum_final_level"), risk.get("minimum_final_level"))
 
     assessment = {
-        "model": "six_dimension_f_r_v1",
-        "score_direction": "six_dimensions.score 为 0-100 困扰分，分数越高代表越需要关注",
+        "model": "six_dimension_f_r_v2_health_score",
+        "score_direction": "six_dimensions.score 为 0-100 健康分，分数越高代表心理状态越稳定",
         "source_weights": source_weights or {"scale": 0.40, "dialogue": 0.45, "profile": 0.15},
         "six_dimensions": dimension_profile,
         "overall_index": index,
+        "health_index": index,
+        "concern_index": concern_index,
         "base_level": base_level,
         "functional_impairment": functional,
         "risk_protection_gate": risk,
@@ -539,7 +582,7 @@ def format_assessment_markdown(assessment: Dict[str, Any]) -> str:
     lines = [
         f"### 综合画像：{assessment.get('overall_index', 0)} / 100（{assessment.get('final_level', '待评估')}）",
         "",
-        "六维分数为困扰分，分数越高代表越需要关注；风险保护闸门拥有一票优先权。",
+        "六维分数为健康分，分数越高代表心理状态越稳定；风险保护闸门拥有一票优先权。",
         "",
         "#### 六维画像",
     ]
@@ -547,7 +590,7 @@ def format_assessment_markdown(assessment: Dict[str, Any]) -> str:
         evidence = "；".join(item.get("evidence") or []) or "暂无明确文本证据"
         lines.append(
             f"- **{item.get('label', key)}**：{item.get('score', 0)}/100，"
-            f"{item.get('level', '')}。{item.get('anchor_text', '')}。证据：{evidence}"
+            f"{item.get('level', '')}。{item.get('anchor_text', '')}。关注线索：{evidence}"
         )
 
     lines.extend([

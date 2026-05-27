@@ -10,7 +10,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TextStreamer
 from peft import PeftModel
 
 # 配置
-BASE_MODEL = os.getenv("LOCAL_BASE_MODEL") or os.getenv("QWEN_BASE_MODEL") or "Qwen/Qwen2.5-7B-Instruct"
 _DEFAULT_LORA_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "qwen_psychology_finetuned")
 LORA_PATH = os.getenv("LOCAL_LORA_PATH") or os.getenv("QWEN_LORA_PATH") or _DEFAULT_LORA_PATH
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -20,15 +19,35 @@ _model = None
 _tokenizer = None
 
 
+def _resolve_base_model():
+    configured = os.getenv("LOCAL_BASE_MODEL") or os.getenv("QWEN_BASE_MODEL")
+    if configured:
+        return configured
+
+    adapter_config = os.path.join(LORA_PATH, "adapter_config.json")
+    if os.path.exists(adapter_config):
+        try:
+            with open(adapter_config, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            base = data.get("base_model_name_or_path")
+            if base:
+                return base
+        except Exception:
+            pass
+
+    return "Qwen/Qwen2.5-3B-Instruct"
+
+
 def _load_model():
     """加载微调后的模型（单例懒加载）"""
     global _model, _tokenizer
     if _model is not None:
         return _model, _tokenizer
 
-    print(f"[本地模型] 加载基座模型: {BASE_MODEL}")
+    base_model_name = _resolve_base_model()
+    print(f"[本地模型] 加载基座模型: {base_model_name}")
     tokenizer = AutoTokenizer.from_pretrained(
-        BASE_MODEL,
+        base_model_name,
         trust_remote_code=True,
         padding_side="right"
     )
@@ -45,7 +64,7 @@ def _load_model():
     )
 
     base_model = AutoModelForCausalLM.from_pretrained(
-        BASE_MODEL,
+        base_model_name,
         quantization_config=quant_config,
         device_map="auto",
         trust_remote_code=True,

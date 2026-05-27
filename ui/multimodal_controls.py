@@ -16,18 +16,30 @@ def emotion_summary(emotion: Optional[Dict[str, Any]]) -> str:
     if not emotion:
         return ""
     text = str(emotion.get("emotion_cn") or "").strip()
+    status = str(emotion.get("status") or "ok").strip()
+    if status != "ok":
+        return text
     vector = emotion.get("vector") or {}
     if not vector:
         return text
+    confidence = emotion.get("confidence")
+    confidence_text = ""
+    if confidence is not None:
+        try:
+            confidence_text = f"置信度 {float(confidence):.2f}, "
+        except Exception:
+            confidence_text = ""
     return (
         f"{text} "
-        f"(愉悦度 {vector.get('valence', 0.5):.2f}, "
+        f"({confidence_text}愉悦度 {vector.get('valence', 0.5):.2f}, "
         f"焦虑 {vector.get('anxiety', 0.0):.2f}, "
         f"疲劳 {vector.get('fatigue', 0.0):.2f})"
     ).strip()
 
 
 def build_multimodal_prompt(user_text: str, emotion: Optional[Dict[str, Any]]) -> str:
+    if emotion and str(emotion.get("status") or "ok") != "ok":
+        return user_text
     summary = emotion_summary(emotion)
     if not summary:
         return user_text
@@ -125,8 +137,10 @@ def render_multimodal_controls(scope: str, image_upload: bool = False) -> Dict[s
         st.session_state.emotion_on = False
 
     if st.session_state.get(state_key, False):
-        result["emotion"] = mm.get_current_emotion()
-        summary = emotion_summary(result["emotion"]) or "表情识别已开启"
+        current_emotion = mm.get_current_emotion()
+        if str(current_emotion.get("status") or "ok") == "ok":
+            result["emotion"] = current_emotion
+        summary = emotion_summary(current_emotion) or "表情识别已开启"
         with status_col:
             st.caption(f"当前表情：{summary}")
     else:

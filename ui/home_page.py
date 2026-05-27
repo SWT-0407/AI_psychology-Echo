@@ -179,8 +179,8 @@ def _render_profile_snapshot() -> None:
 
     score = summary.get("overall_score")
     score_text = f"{score}/100" if isinstance(score, (int, float)) else "等待评测"
-    concern = summary.get("concern_index")
-    concern_text = f"画像 {concern}/100" if isinstance(concern, (int, float)) else ""
+    health_index = summary.get("health_index")
+    health_text = f"画像 {health_index}/100" if isinstance(health_index, (int, float)) else ""
     tags = summary.get("tags") or ["画像生成中"]
     topics = summary.get("recent_topics") or ["暂无主题"]
     signals = summary.get("signals") or []
@@ -206,7 +206,7 @@ def _render_profile_snapshot() -> None:
             <div class="profile-grid">
                 <div class="profile-cell">
                     <div class="profile-label">综合状态</div>
-                    <div class="profile-value">{escape(str(summary.get("integrated_level") or summary.get("level") or "暂无评估"))}<br>{escape(score_text)} {escape(concern_text)}</div>
+                    <div class="profile-value">{escape(str(summary.get("integrated_level") or summary.get("level") or "暂无评估"))}<br>{escape(score_text)} {escape(health_text)}</div>
                 </div>
                 <div class="profile-cell">
                     <div class="profile-label">最近情绪</div>
