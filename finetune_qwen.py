@@ -29,7 +29,6 @@ from transformers import (
 
 ROOT = Path(__file__).resolve().parent
 
-# 8GB 显存下 3B 更稳；如果要训练 7B，可在命令前设置 BASE_MODEL。
 BASE_MODEL = os.getenv("BASE_MODEL", "Qwen/Qwen2.5-3B-Instruct")
 TRAIN_PATH = Path(os.getenv("SFT_TRAIN_PATH", ROOT / "data" / "finetune_ready" / "echo_sft_train.jsonl"))
 EVAL_PATH = Path(os.getenv("SFT_EVAL_PATH", ROOT / "data" / "finetune_ready" / "echo_sft_eval.jsonl"))
@@ -41,9 +40,14 @@ MAX_STEPS = int(os.getenv("MAX_STEPS", "-1"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "1"))
 GRADIENT_ACCUM = int(os.getenv("GRADIENT_ACCUM", "8"))
 LEARNING_RATE = float(os.getenv("LEARNING_RATE", "2e-4"))
+EVAL_STEPS = int(os.getenv("EVAL_STEPS", "50"))
 LORA_R = int(os.getenv("LORA_R", "16"))
 LORA_ALPHA = int(os.getenv("LORA_ALPHA", "32"))
 LORA_DROPOUT = float(os.getenv("LORA_DROPOUT", "0.05"))
+SAVE_STRATEGY = os.getenv("SAVE_STRATEGY", "steps")
+SAVE_STEPS = int(os.getenv("SAVE_STEPS", "50"))
+SAVE_TOTAL_LIMIT = int(os.getenv("SAVE_TOTAL_LIMIT", "2"))
+RESUME_FROM_CHECKPOINT = os.getenv("RESUME_FROM_CHECKPOINT") or None
 
 
 def load_jsonl(path: Path) -> List[Dict]:
@@ -151,6 +155,8 @@ def main() -> None:
     print(f"Train data: {TRAIN_PATH}")
     print(f"Eval data:  {EVAL_PATH}")
     print(f"Output dir: {OUTPUT_DIR}")
+    if RESUME_FROM_CHECKPOINT:
+        print(f"Resume from: {RESUME_FROM_CHECKPOINT}")
     print(f"CUDA: {torch.cuda.is_available()} | {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none'}")
     print("=" * 60)
 
@@ -175,10 +181,10 @@ def main() -> None:
         gradient_checkpointing=True,
         logging_steps=10,
         eval_strategy="steps",
-        eval_steps=50,
-        save_strategy="steps",
-        save_steps=50,
-        save_total_limit=2,
+        eval_steps=EVAL_STEPS,
+        save_strategy=SAVE_STRATEGY,
+        save_steps=SAVE_STEPS,
+        save_total_limit=SAVE_TOTAL_LIMIT,
         report_to="none",
         optim="paged_adamw_8bit",
         lr_scheduler_type="cosine",
@@ -200,11 +206,11 @@ def main() -> None:
         args=args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=data_collator,
     )
 
-    trainer.train()
+    trainer.train(resume_from_checkpoint=RESUME_FROM_CHECKPOINT)
     trainer.save_model(str(OUTPUT_DIR))
     tokenizer.save_pretrained(str(OUTPUT_DIR))
     (OUTPUT_DIR / "echo_training_config.json").write_text(
@@ -218,6 +224,11 @@ def main() -> None:
                 "batch_size": BATCH_SIZE,
                 "gradient_accumulation": GRADIENT_ACCUM,
                 "learning_rate": LEARNING_RATE,
+                "eval_steps": EVAL_STEPS,
+                "save_strategy": SAVE_STRATEGY,
+                "save_steps": SAVE_STEPS,
+                "save_total_limit": SAVE_TOTAL_LIMIT,
+                "resumed_from_checkpoint": RESUME_FROM_CHECKPOINT,
             },
             ensure_ascii=False,
             indent=2,

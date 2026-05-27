@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional
 
 import streamlit as st
 
+from services.message_format import dumps_storage_json
+
 BASE_DIR = Path("data")
 DIARY_DIR = BASE_DIR / "diary_ui"
 PROFILE_PATH = DIARY_DIR / "profile.json"
@@ -36,7 +38,7 @@ def _read_json(path: Path, default):
 def _write_json(path: Path, data):
     _ensure_dirs()
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write(dumps_storage_json(data))
 
 
 def load_profile() -> Optional[Dict[str, Any]]:

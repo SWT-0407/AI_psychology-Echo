@@ -7,6 +7,8 @@
 import io
 from collections import deque
 
+from Multimodal.config import FACE_EMOTION_ALIASES, FACE_EMOTION_LABELS
+
 
 class SpeechRecognizer:
     def __init__(self, language='zh-CN'):
@@ -72,21 +74,23 @@ class EmotionDetector:
     """
 
     EMOTION_CN_MAP = {
-        'happy': '😊 开心', 'sad': '😢 悲伤', 'angry': '😠 生气',
-        'surprise': '😮 惊讶', 'fear': '😨 恐惧', 'disgust': '🤢 厌恶',
-        'surprised': '😮 惊讶', 'fearful': '😨 恐惧', 'disgusted': '🤢 厌恶',
-        'neutral': '😐 平静', 'contempt': '😏 轻蔑', 'anxious': '😰 焦虑',
-        'tired': '😴 疲惫', 'unknown': '⚪ 未识别'
+        key: f"{item['emoji']} {item['cn']}"
+        for key, item in FACE_EMOTION_LABELS.items()
     }
 
-    def __init__(self, camera_id=0, interval=2.0):
+    def __init__(self, camera_id=0, interval=2.0, preview_enabled=True):
         """
         Args:
             camera_id: int, 摄像头编号
             interval: float, 两次 API 分析之间的最小间隔（秒）
+            preview_enabled: bool, 开启识别时是否弹出本机视频预览窗口
         """
         self.camera_id = camera_id
         self.interval = interval
+        self.preview_enabled = preview_enabled
+        self.preview_window_name = "Echo 表情识别预览"
+        self._preview_window_open = False
+        self._preview_size = (320, 180)
         self.camera = None
         self.running = False
         self.current_emotion = 'unknown'
@@ -155,10 +159,76 @@ class EmotionDetector:
 
     def stop(self):
         self.running = False
+        self._close_preview_window()
         if self.camera:
             import cv2
             self.camera.release()
             self.camera = None
+
+    def _screen_fraction_size(self):
+        try:
+            import tkinter as tk
+            root = tk.Tk()
+            root.withdraw()
+            width = max(160, int(root.winfo_screenwidth() / 4))
+            height = max(90, int(root.winfo_screenheight() / 4))
+            root.destroy()
+            return width, height
+        except Exception:
+            return 320, 180
+
+    def _fit_frame_to_preview(self, frame, target_w, target_h):
+        import cv2
+        import numpy as np
+
+        if frame is None or getattr(frame, "size", 0) == 0:
+            return None
+
+        frame_h, frame_w = frame.shape[:2]
+        if frame_w <= 0 or frame_h <= 0:
+            return None
+
+        scale = min(target_w / frame_w, target_h / frame_h)
+        new_w = max(1, int(frame_w * scale))
+        new_h = max(1, int(frame_h * scale))
+        resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        canvas = np.full((target_h, target_w, 3), 18, dtype=resized.dtype)
+        x = (target_w - new_w) // 2
+        y = (target_h - new_h) // 2
+        canvas[y:y + new_h, x:x + new_w] = resized
+        return canvas
+
+    def _show_preview_window(self, frame):
+        if not self.preview_enabled:
+            return
+        import cv2
+
+        try:
+            width, height = self._preview_size
+            if not self._preview_window_open:
+                self._preview_size = self._screen_fraction_size()
+                width, height = self._preview_size
+                cv2.namedWindow(self.preview_window_name, cv2.WINDOW_NORMAL)
+                cv2.resizeWindow(self.preview_window_name, width, height)
+                self._preview_window_open = True
+
+            preview = self._fit_frame_to_preview(frame, width, height)
+            if preview is not None:
+                cv2.imshow(self.preview_window_name, preview)
+                cv2.waitKey(1)
+        except Exception:
+            self._preview_window_open = False
+
+    def _close_preview_window(self):
+        if not self._preview_window_open:
+            return
+        try:
+            import cv2
+            cv2.destroyWindow(self.preview_window_name)
+            cv2.waitKey(1)
+        except Exception:
+            pass
+        self._preview_window_open = False
 
     def _capture_loop(self):
         """
@@ -188,6 +258,7 @@ class EmotionDetector:
             # 保存原帧用于显示
             with self._lock:
                 self.frame = frame.copy()
+            self._show_preview_window(frame)
 
             face_img = self._extract_face(frame, face_cascade)
             if face_img is not None:
@@ -273,16 +344,8 @@ class EmotionDetector:
             self._set_unstable_state("api_error", "服务异常", f"{exc.__class__.__name__}: {exc}")
 
     def _normalize_emotion(self, emotion):
-        aliases = {
-            "surprised": "surprise",
-            "fearful": "fear",
-            "disgusted": "disgust",
-            "calm": "neutral",
-            "normal": "neutral",
-            "uncertain": "unknown",
-        }
         key = str(emotion or "unknown").strip().lower()
-        key = aliases.get(key, key)
+        key = FACE_EMOTION_ALIASES.get(key, key)
         return key if key in self.EMOTION_CN_MAP else "unknown"
 
     def _safe_confidence(self, value):

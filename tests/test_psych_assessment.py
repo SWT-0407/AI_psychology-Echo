@@ -38,7 +38,25 @@ class PsychAssessmentScoreDirectionTests(unittest.TestCase):
 
         self.assertIn("健康分", markdown)
         self.assertNotIn("困扰分", markdown)
+        self.assertNotIn("功能受损", markdown)
+        self.assertNotIn("风险保护", markdown)
+        self.assertNotIn("风险因素", markdown)
+        self.assertNotIn("保护因素", markdown)
         self.assertEqual(assessment["score_direction"], "six_dimensions.score 为 0-100 健康分，分数越高代表心理状态越稳定")
+
+    def test_crisis_gate_remains_backend_only_in_user_report(self):
+        assessment = build_integrated_assessment(
+            {"x1": 4, "x2": 4, "x3": 4, "x4": 4, "x5": 4, "x6": 4},
+            [{"role": "user", "content": "我想自杀，已经准备了药。"}],
+        )
+        markdown = format_assessment_markdown(assessment)
+
+        self.assertEqual(assessment["risk_protection_gate"]["level"], "R3")
+        self.assertIn("专业人士", markdown)
+        self.assertNotIn("风险保护", markdown)
+        self.assertNotIn("风险因素", markdown)
+        self.assertNotIn("保护因素", markdown)
+        self.assertNotIn("R3", markdown)
 
 
 if __name__ == "__main__":

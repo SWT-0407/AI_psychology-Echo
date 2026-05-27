@@ -79,11 +79,43 @@ def _save_synced_ids(ids: set):
             f.write(sid + "\n")
 
 
+def _mark_session_synced(session_id: str):
+    synced = _load_synced_ids()
+    synced.add(session_id)
+    _save_synced_ids(synced)
+
+
+def _is_duplicate_session_error(error: Exception) -> bool:
+    text = str(error).lower()
+    return (
+        "23505" in text
+        or "duplicate key" in text
+        or "chat_history_session_id_key" in text
+    )
+
+
+def _upsert_chat_history_record(client, record):
+    return (
+        client.table("chat_history")
+        .upsert(record, on_conflict="session_id")
+        .execute()
+    )
+
+
+def _update_chat_history_record(client, session_id, record):
+    return (
+        client.table("chat_history")
+        .update(record)
+        .eq("session_id", session_id)
+        .execute()
+    )
+
+
 # ==========================================
 # 上传会话数据到云端
 # ==========================================
 
-def upload_session_to_cloud(session_id, data, upload_full_content=True):
+def upload_session_to_cloud(session_id, data, upload_full_content=False):
     """
     将一次完整会话数据上传到 Supabase 云端
 
@@ -101,12 +133,13 @@ def upload_session_to_cloud(session_id, data, upload_full_content=True):
 
     try:
         user_id = st.session_state.get("user_id") or st.session_state.get("user_email", "anonymous")
+        messages = data.get("messages") or data.get("display_messages", [])
 
         record = {
             "session_id": session_id,
             "user_id": user_id,
             "timestamp": data.get("timestamp", datetime.now().isoformat()),
-            "display_messages": data.get("display_messages", []) if upload_full_content else [],
+            "display_messages": messages if upload_full_content else [],
             "scores": data.get("scores", {}),
             "composite_score": data.get("composite_score", 0),
             "level_name": data.get("level_name", ""),
@@ -119,13 +152,15 @@ def upload_session_to_cloud(session_id, data, upload_full_content=True):
             "upload_content": upload_full_content,
         }
 
-        res = client.table("chat_history").upsert(record).execute()
-        if res.data:
-            synced = _load_synced_ids()
-            synced.add(session_id)
-            _save_synced_ids(synced)
-            return True
-        return False
+        try:
+            _upsert_chat_history_record(client, record)
+        except Exception as upsert_error:
+            if not _is_duplicate_session_error(upsert_error):
+                raise
+            _update_chat_history_record(client, session_id, record)
+
+        _mark_session_synced(session_id)
+        return True
     except Exception as e:
         st.error(f"☁️ 云端上传失败: {e}")
         return False
@@ -135,7 +170,7 @@ def upload_session_to_cloud(session_id, data, upload_full_content=True):
 # 增量同步
 # ==========================================
 
-def sync_incremental(upload_full_content=True):
+def sync_incremental(upload_full_content=False):
     """
     增量同步：只上传本地新增的、尚未同步过的会话数据
 
@@ -346,7 +381,7 @@ def render_privacy_settings():
 
     upload_content = st.checkbox(
         "上传完整聊天内容",
-        value=st.session_state.get("upload_full_content", True),
+        value=st.session_state.get("upload_full_content", False),
         key="privacy_upload_content",
         help="关闭后，云端仅存储评分和分析结果，不保存对话详细内容"
     )
@@ -362,7 +397,7 @@ def render_privacy_settings():
 
     if st.button("🔄 手动同步到云端", use_container_width=True, key="manual_sync_btn"):
         if st.session_state.get("cloud_consent", False):
-            success, failed = sync_incremental(st.session_state.get("upload_full_content", True))
+            success, failed = sync_incremental(st.session_state.get("upload_full_content", False))
             if success > 0 or failed > 0:
                 st.info(f"☁️ 同步完成：成功 {success}，失败 {failed}")
             else:
@@ -378,4 +413,4 @@ def render_privacy_settings():
 
 def sync_local_to_cloud():
     """批量同步本地全部数据到云端"""
-    return sync_incremental(st.session_state.get("upload_full_content", True))
+    return sync_incremental(st.session_state.get("upload_full_content", False))

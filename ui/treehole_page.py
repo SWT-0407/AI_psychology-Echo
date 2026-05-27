@@ -15,6 +15,7 @@ from services.safety import assess_message_safety, attach_safety_metadata, make_
 from services.treehole_ai_service import (
     TreeholeModelError,
     generate_treehole_model_reply,
+    get_last_fallback_errors,
     model_source_label,
 )
 from ui.crisis_alert import queue_crisis_alert, render_crisis_alert_if_needed
@@ -697,7 +698,14 @@ def _submit_treehole_message(prompt: str, emotion=None, image: Optional[Dict[str
         ai_prompt = build_multimodal_prompt(base_prompt, emotion) + _rating_feedback_summary(messages)
         try:
             reply, model_source = generate_treehole_model_reply(ai_prompt, messages, scores)
-            st.session_state.treehole_model_notice = ""
+            fallback_errors = get_last_fallback_errors()
+            if fallback_errors and model_source != "local_finetuned":
+                st.session_state.treehole_model_notice = (
+                    f"本地微调模型暂时没加载成功，已改用 {model_source_label(model_source)}。"
+                    f"原因：{fallback_errors[-1]}"
+                )
+            else:
+                st.session_state.treehole_model_notice = ""
         except TreeholeModelError as exc:
             reply = generate_reply("treehole", ai_prompt, messages, scores)
             model_source = "local_template"

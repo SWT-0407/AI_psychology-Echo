@@ -7,7 +7,13 @@ from typing import Any, Dict, List, Optional
 
 import streamlit as st
 
-from services.message_format import messages_to_readable_text, normalize_messages
+from services.message_format import (
+    compact_session_record,
+    dumps_storage_json,
+    hydrate_session_record,
+    messages_to_readable_text,
+    normalize_messages,
+)
 
 
 DATA_ROOT = Path(__file__).resolve().parents[1] / "data"
@@ -52,7 +58,7 @@ def read_json(path: Path, default: Any) -> Any:
 
 def write_json(path: Path, data: Any) -> None:
     ensure_dirs()
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(dumps_storage_json(data), encoding="utf-8")
 
 
 def short_text(text: str, length: int = 36) -> str:
@@ -165,7 +171,7 @@ def _save_complete_session(session_id: str, payload: Dict[str, Any]) -> None:
         from services.storage_local import save_complete_session
         save_complete_session(session_id, payload)
     except Exception:
-        write_json(HISTORY_DIR / f"{session_id}.json", payload)
+        write_json(HISTORY_DIR / f"{session_id}.json", compact_session_record(payload))
 
 
 def _maybe_upload_session(session_id: str, payload: Dict[str, Any]) -> None:
@@ -173,7 +179,7 @@ def _maybe_upload_session(session_id: str, payload: Dict[str, Any]) -> None:
         return
     try:
         from services.storage_cloud import upload_session_to_cloud
-        upload_full = st.session_state.get("upload_full_content", True)
+        upload_full = st.session_state.get("upload_full_content", False)
         upload_session_to_cloud(session_id, payload, upload_full)
     except Exception:
         pass
@@ -259,7 +265,7 @@ def save_history_record(
 
 
 def load_history_record(record_id: str) -> Optional[Dict[str, Any]]:
-    data = read_json(HISTORY_DIR / f"{record_id}.json", None)
+    data = hydrate_session_record(read_json(HISTORY_DIR / f"{record_id}.json", None))
     return data if isinstance(data, dict) else None
 
 
@@ -296,7 +302,7 @@ def list_history_records(mode: Optional[str] = None) -> List[Dict[str, Any]]:
     ensure_dirs()
     records: List[Dict[str, Any]] = []
     for path in HISTORY_DIR.glob("*.json"):
-        data = read_json(path, None)
+        data = hydrate_session_record(read_json(path, None), include_conversation_text=False)
         if not isinstance(data, dict):
             continue
         if mode and data.get("mode") not in (mode, None, ""):
@@ -717,7 +723,7 @@ def init_runtime_state() -> None:
     st.session_state.setdefault("user_email", None)
     st.session_state.setdefault("user_nickname", "")
     st.session_state.setdefault("cloud_consent", False)
-    st.session_state.setdefault("upload_full_content", True)
+    st.session_state.setdefault("upload_full_content", False)
     st.session_state.setdefault("page", "home")
     st.session_state.setdefault("diary_stage", "cover")
     st.session_state.setdefault("diary_profile", load_profile())

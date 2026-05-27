@@ -107,8 +107,8 @@ def _crisis_dialog(alert: Dict[str, Any]) -> None:
 
     st.markdown(
         f"""
-        <div class="echo-crisis-title">系统检测到可能涉及自伤、轻生或伤害他人的高风险内容。</div>
-        <div>{assistant_name} 可以继续陪你，但这里不能替代急救、心理咨询或医疗判断。请把现实安全放在第一位。</div>
+        <div class="echo-crisis-title">请先把现实安全放在第一位。</div>
+        <div>{assistant_name} 可以继续陪你，但这里不能替代急救、心理咨询或医疗判断。请现在联系现实中的专业人士、家人、朋友或其他可信任的人。</div>
         """,
         unsafe_allow_html=True,
     )
@@ -122,7 +122,7 @@ def _crisis_dialog(alert: Dict[str, Any]) -> None:
     st.markdown(
         """
         <div class="echo-crisis-box">
-        请现在优先做一件事：联系现实中的专业人士或紧急支持。可以是当地紧急救援、学校心理中心、辅导员、校医院、持证心理咨询师/精神卫生专业人士，或此刻能陪在你身边的可信任联系人。<br/>
+        请现在优先做一件事：联系现实中的专业人士、家人朋友或紧急支持。可以是当地紧急救援、学校心理中心、辅导员、校医院、持证心理咨询师/精神卫生专业人士，或此刻能陪在你身边的可信任联系人。<br/>
         如果你已经有具体计划、工具、地点，或担心马上会伤害自己/他人，请不要一个人待着，并尽快离开可能造成伤害的物品或地点。
         </div>
         """,
@@ -143,13 +143,13 @@ def _crisis_dialog(alert: Dict[str, Any]) -> None:
             use_container_width=True,
         )
 
-    if st.button("我正在联系专业人士或紧急支持", type="primary", use_container_width=True):
+    if st.button("我正在联系专业人士、家人朋友或紧急支持", type="primary", use_container_width=True):
         _record_alert_action("contacting_professional_support")
         st.rerun()
 
     ack_key = f"crisis_ack_{alert.get('id')}"
     acknowledged = st.checkbox(
-        "我理解 Echo 不是医疗或危机干预服务；如果我正处在危险中，我会立即联系专业人士、当地紧急救援或可信任的人。",
+        "我理解 Echo 不是医疗或危机干预服务；如果我正处在危险中，我会立即联系专业人士、当地紧急救援、家人朋友或其他可信任的人。",
         key=ack_key,
     )
     if st.button("确认已理解，继续使用", disabled=not acknowledged, use_container_width=True):

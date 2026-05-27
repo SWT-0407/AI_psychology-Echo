@@ -5,26 +5,49 @@
 """
 import os
 import json
+import re
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextStreamer
 from peft import PeftModel
 
 # 配置
 _DEFAULT_LORA_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "qwen_psychology_finetuned")
-LORA_PATH = os.getenv("LOCAL_LORA_PATH") or os.getenv("QWEN_LORA_PATH") or _DEFAULT_LORA_PATH
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # 全局单例
 _model = None
 _tokenizer = None
+_loaded_lora_path = None
 
 
-def _resolve_base_model():
+def _checkpoint_rank(name: str) -> int:
+    match = re.search(r"checkpoint-(\d+)$", name)
+    return int(match.group(1)) if match else -1
+
+
+def _resolve_lora_path():
+    path = os.getenv("LOCAL_LORA_PATH") or os.getenv("QWEN_LORA_PATH") or _DEFAULT_LORA_PATH
+    if os.path.exists(os.path.join(path, "adapter_config.json")):
+        return path
+    if not os.path.isdir(path):
+        return path
+
+    checkpoints = []
+    for name in os.listdir(path):
+        child = os.path.join(path, name)
+        if os.path.isdir(child) and name.startswith("checkpoint-") and os.path.exists(os.path.join(child, "adapter_config.json")):
+            checkpoints.append(child)
+    if not checkpoints:
+        return path
+    return max(checkpoints, key=lambda item: _checkpoint_rank(os.path.basename(item)))
+
+
+def _resolve_base_model(lora_path):
     configured = os.getenv("LOCAL_BASE_MODEL") or os.getenv("QWEN_BASE_MODEL")
     if configured:
         return configured
 
-    adapter_config = os.path.join(LORA_PATH, "adapter_config.json")
+    adapter_config = os.path.join(lora_path, "adapter_config.json")
     if os.path.exists(adapter_config):
         try:
             with open(adapter_config, "r", encoding="utf-8") as f:
@@ -40,11 +63,12 @@ def _resolve_base_model():
 
 def _load_model():
     """加载微调后的模型（单例懒加载）"""
-    global _model, _tokenizer
-    if _model is not None:
+    global _model, _tokenizer, _loaded_lora_path
+    lora_path = _resolve_lora_path()
+    if _model is not None and _loaded_lora_path == lora_path:
         return _model, _tokenizer
 
-    base_model_name = _resolve_base_model()
+    base_model_name = _resolve_base_model(lora_path)
     print(f"[本地模型] 加载基座模型: {base_model_name}")
     tokenizer = AutoTokenizer.from_pretrained(
         base_model_name,
@@ -72,9 +96,9 @@ def _load_model():
     )
 
     # 加载 LoRA 权重
-    print(f"[本地模型] 加载 LoRA 权重: {LORA_PATH}")
-    if os.path.exists(LORA_PATH):
-        model = PeftModel.from_pretrained(base_model, LORA_PATH)
+    print(f"[本地模型] 加载 LoRA 权重: {lora_path}")
+    if os.path.exists(lora_path):
+        model = PeftModel.from_pretrained(base_model, lora_path)
     else:
         print(f"[本地模型] 未找到微调权重，使用基座模型")
         model = base_model
@@ -82,6 +106,7 @@ def _load_model():
     model.eval()
     _model = model
     _tokenizer = tokenizer
+    _loaded_lora_path = lora_path
     return model, tokenizer
 
 

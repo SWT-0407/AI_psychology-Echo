@@ -7,6 +7,8 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import streamlit as st
 
+from services.message_format import dumps_storage_json
+
 
 DATA_ROOT = Path(__file__).resolve().parents[1] / "data"
 USER_PROFILE_DIR = DATA_ROOT / "user_profile"
@@ -83,7 +85,7 @@ def _read_json(path: Path, default: Any) -> Any:
 
 def _write_json(path: Path, data: Any) -> None:
     USER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(dumps_storage_json(data), encoding="utf-8")
 
 
 def _short_text(text: str, length: int = 56) -> str:

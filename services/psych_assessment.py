@@ -469,15 +469,15 @@ def _main_concerns(dimension_profile: Dict[str, Dict[str, Any]], limit: int = 3)
 def _recommendations(final_level: str, functional: Dict[str, Any], risk: Dict[str, Any]) -> List[str]:
     if risk.get("level") == "R3":
         return [
-            "优先确认用户此刻是否安全，鼓励其立刻联系身边可信任的人或当地紧急支持。",
-            "暂停普通测评追问，避免让用户独自处理危机。",
-            "记录触发高风险的证据，交由人工或专业人员复核。",
+            "请现在优先联系专业人士、当地紧急救援，或一位可信任的家人朋友，不要独自处理。",
+            "尽量离开可能造成伤害的物品或地点，让一个现实中的人陪在身边。",
+            "普通测评可以先暂停，等确认安全后再继续记录状态。",
         ]
     if risk.get("level") == "R2":
         return [
-            "建议人工复核或尽快连接心理咨询/精神卫生专业支持。",
-            "继续直接确认是否有计划、手段、近期意图，以及接下来几个小时能否保证安全。",
-            "强化保护因素：确认一个可以现在联系的人，并安排短期复评。",
+            "建议尽快联系学校心理中心、心理咨询师、精神卫生专业人士，或可信任的家人朋友。",
+            "接下来几个小时先把现实安全放在第一位；如果担心自己会失控，请直接联系当地紧急救援。",
+            "安排一次短期复评或现实陪伴，减少独自承受。",
         ]
     if final_level in {"需要照顾", "建议求助"} or functional.get("level") in {"F2", "F3"}:
         return [
@@ -577,12 +577,10 @@ def build_integrated_assessment(
 
 def format_assessment_markdown(assessment: Dict[str, Any]) -> str:
     """Render a compact Markdown report for Streamlit."""
-    risk = assessment.get("risk_protection_gate") or {}
-    functional = assessment.get("functional_impairment") or {}
     lines = [
         f"### 综合画像：{assessment.get('overall_index', 0)} / 100（{assessment.get('final_level', '待评估')}）",
         "",
-        "六维分数为健康分，分数越高代表心理状态越稳定；风险保护闸门拥有一票优先权。",
+        "六维分数为健康分，分数越高代表心理状态越稳定。",
         "",
         "#### 六维画像",
     ]
@@ -592,22 +590,6 @@ def format_assessment_markdown(assessment: Dict[str, Any]) -> str:
             f"- **{item.get('label', key)}**：{item.get('score', 0)}/100，"
             f"{item.get('level', '')}。{item.get('anchor_text', '')}。关注线索：{evidence}"
         )
-
-    lines.extend([
-        "",
-        "#### 功能受损校准器",
-        f"- **{functional.get('level', 'F0')} {functional.get('label', '')}**："
-        f"{'；'.join(functional.get('evidence') or ['暂未发现明确功能受损证据'])}",
-        "",
-        "#### 风险保护闸门",
-        f"- **{risk.get('level', 'R0')} {risk.get('label', '')}**：{risk.get('action', '')}",
-    ])
-    if risk.get("risk_factors"):
-        lines.append(f"- 风险因素：{'；'.join(risk.get('risk_factors') or [])}")
-    if risk.get("protective_factors"):
-        lines.append(f"- 保护因素：{'；'.join(risk.get('protective_factors') or [])}")
-    if risk.get("override"):
-        lines.append("- 规则触发：风险闸门已覆盖普通六维加权结果。")
 
     lines.extend(["", "#### 建议路径"])
     for item in assessment.get("recommendations") or []:

@@ -858,6 +858,20 @@ def _set_companion_query(selected_id: Optional[str]) -> None:
         pass
 
 
+def _go_home_from_companion() -> None:
+    try:
+        local_mode = st.query_params.get("_local_mode")
+        if isinstance(local_mode, list):
+            local_mode = local_mode[0] if local_mode else ""
+        st.query_params.clear()
+        if local_mode or st.session_state.get("skipped_login"):
+            st.query_params["_local_mode"] = str(local_mode or "1")
+    except Exception:
+        pass
+    st.session_state.page = "home"
+    st.rerun()
+
+
 def _fmt_time(raw: str) -> str:
     try:
         dt = datetime.fromisoformat(str(raw))
@@ -1331,8 +1345,7 @@ def _render_sidebar(characters: List[Dict[str, Any]], selected: Optional[Dict[st
             st.rerun()
     with b3:
         if st.button("首页", use_container_width=True, key="companion_back_home"):
-            st.session_state.page = "home"
-            st.rerun()
+            _go_home_from_companion()
 
     _render_add_contact(characters)
 
@@ -1634,8 +1647,7 @@ def _render_sidebar(characters: List[Dict[str, Any]], selected: Optional[Dict[st
             st.rerun()
     with b3:
         if st.button("首页", use_container_width=True, key="companion_back_home"):
-            st.session_state.page = "home"
-            st.rerun()
+            _go_home_from_companion()
     st.markdown("</div>", unsafe_allow_html=True)
 
     _render_add_contact(characters)

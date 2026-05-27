@@ -29,6 +29,12 @@ from services.local_ai import (
 from services.message_format import messages_to_readable_text, normalize_messages
 from services.proactive_engine import maybe_add_care_proactive
 from services.safety import assess_message_safety, attach_safety_metadata, make_safety_reply
+from services.treehole_ai_service import (
+    TreeholeModelError,
+    generate_treehole_model_reply,
+    get_last_fallback_errors,
+    model_source_label,
+)
 from ui.crisis_alert import queue_crisis_alert, render_crisis_alert_if_needed
 from utils.status_assets import get_status_assets
 from utils.visualization import draw_radar_chart
@@ -427,8 +433,30 @@ DIARY_CSS = """
     overflow: hidden;
     line-height: 1.45;
     word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    text-overflow: ellipsis;
 }
 .history-meta { color: #9a626d; font-size: 14px; margin-top: 12px; }
+.history-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 8px;
+}
+.history-tag {
+    max-width: 100%;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(174, 185, 220, .38);
+    color: #514865;
+    font-size: 12px;
+    font-weight: 900;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 .chat-paper {
     min-height: 620px;
     background: #fffefc;
@@ -796,6 +824,56 @@ DIARY_CSS = """
     color: #55484e;
     font-size: clamp(10px, 1.1vw, 14px);
     line-height: 1.35;
+}
+.tpl-history-content,
+.tpl-history-tags {
+    position: absolute;
+    box-sizing: border-box;
+    pointer-events: none;
+    z-index: 6;
+    font-family: "Comic Sans MS", "Comic Sans", "Gaegu", "Microsoft YaHei", cursive;
+}
+.tpl-history-content {
+    padding: clamp(5px, .75vw, 10px) clamp(7px, 1vw, 13px);
+    color: #55484e;
+    font-size: clamp(10px, .95vw, 15px);
+    line-height: 1.34;
+    font-weight: 800;
+}
+.tpl-history-time {
+    color: #9a626d;
+    font-size: clamp(9px, .78vw, 12px);
+    line-height: 1.1;
+    margin-bottom: clamp(2px, .25vw, 4px);
+}
+.tpl-history-text {
+    overflow: hidden;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 5;
+    -webkit-box-orient: vertical;
+    text-overflow: ellipsis;
+}
+.tpl-history-tags {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: clamp(2px, .35vw, 5px);
+    padding: clamp(4px, .6vw, 8px);
+}
+.tpl-history-tag {
+    max-width: 100%;
+    border-radius: 999px;
+    padding: clamp(1px, .22vw, 3px) clamp(4px, .45vw, 7px);
+    background: rgba(174, 185, 220, .34);
+    color: #514865;
+    font-size: clamp(8px, .72vw, 12px);
+    line-height: 1.25;
+    font-weight: 900;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: inset 0 0 0 1px rgba(70, 58, 78, .08);
 }
 .tpl-history-hotspot {
     position: absolute;
@@ -1700,6 +1778,98 @@ def render_calendar() -> None:
     _close_shell()
 
 
+HISTORY_DIMENSION_TAGS = {
+    "x1": "情绪波动",
+    "x2": "压力偏高",
+    "x3": "身体疲惫",
+    "x4": "动力不足",
+    "x5": "需要支持",
+    "x6": "意义感低",
+}
+
+HISTORY_TEXT_TAG_RULES = [
+    ("重点支持", ["想死", "不想活", "自杀", "轻生", "活不下去"]),
+    ("焦虑", ["焦虑", "紧张", "害怕", "心慌", "慌"]),
+    ("低落", ["难过", "低落", "想哭", "失落", "沮丧"]),
+    ("疲惫", ["累", "疲惫", "没力气", "困", "睡不着", "熬夜", "失眠"]),
+    ("委屈", ["委屈", "被误会", "没人懂", "不敢说"]),
+    ("孤独", ["孤独", "一个人", "没人陪", "没人可以说"]),
+    ("生气", ["生气", "愤怒", "火大", "烦躁"]),
+    ("平稳", ["开心", "放松", "还好", "稳定", "舒服"]),
+]
+
+
+def _compact_history_text(text: Any) -> str:
+    return " ".join(str(text or "").split())
+
+
+def _unique_history_tags(tags: List[str]) -> List[str]:
+    result: List[str] = []
+    for tag in tags:
+        clean = str(tag or "").strip()
+        if clean and clean not in result:
+            result.append(clean)
+    return result[:3]
+
+
+def _history_preview(record: Dict[str, Any]) -> str:
+    messages = normalize_messages(record.get("messages") or record.get("display_messages") or [])
+    for msg in messages:
+        if msg.get("role") == "user":
+            content = _compact_history_text(msg.get("content", ""))
+            if content:
+                return content
+    for msg in messages:
+        content = _compact_history_text(msg.get("content", ""))
+        if content:
+            return content
+    return _compact_history_text(record.get("summary") or record.get("title") or "这次记录还没有写下内容")
+
+
+def _history_state_tags(record: Dict[str, Any]) -> List[str]:
+    messages = normalize_messages(record.get("messages") or record.get("display_messages") or [])
+    text = _compact_history_text(
+        " ".join(
+            str(msg.get("content", ""))
+            for msg in messages
+            if msg.get("role") == "user"
+        )
+    )
+    scores = record.get("scores") or {}
+    tags: List[str] = []
+
+    for label, words in HISTORY_TEXT_TAG_RULES:
+        if any(word in text for word in words):
+            tags.append(label)
+
+    low_dimensions = []
+    for key, label in HISTORY_DIMENSION_TAGS.items():
+        try:
+            value = float(scores.get(key))
+        except (TypeError, ValueError):
+            continue
+        if value <= 5:
+            low_dimensions.append((value, label))
+    for _, label in sorted(low_dimensions, key=lambda item: item[0]):
+        tags.append(label)
+
+    if not tags:
+        try:
+            score = float(record.get("composite_score"))
+        except (TypeError, ValueError):
+            score = overall_score(scores) if scores else 60
+        if score >= 75:
+            tags.append("状态稳定")
+        elif score >= 55:
+            tags.append("轻微波动")
+        elif score >= 40:
+            tags.append("需要照顾")
+        else:
+            tags.append("重点支持")
+
+    return _unique_history_tags(tags)
+
+
 def _history_card(record: Optional[Dict[str, Any]], fallback_dt: datetime) -> str:
     if record:
         raw_time = record.get("updated_at") or record.get("created_at") or ""
@@ -1707,11 +1877,14 @@ def _history_card(record: Optional[Dict[str, Any]], fallback_dt: datetime) -> st
             dt = datetime.fromisoformat(raw_time)
         except Exception:
             dt = fallback_dt
-        summary = escape(record.get("summary", ""))
-        mood = escape(record.get("mood", "") or "📝")
+        summary = escape(_history_preview(record))
+        tags_html = "".join(
+            f'<span class="history-tag">{escape(tag)}</span>'
+            for tag in _history_state_tags(record)
+        )
         meta = dt.strftime("%H:%M")
         body = f"""
-            <div style="font-size:28px">{mood}</div>
+            <div class="history-tags">{tags_html}</div>
             <div class="history-summary">{summary}</div>
             <div class="history-meta">{meta}</div>
         """
@@ -1750,14 +1923,42 @@ def render_history() -> None:
     fallback_dates = [monday + timedelta(days=offset) for offset in range(7)]
 
     if _template_path("history"):
-        slots = [
-            (4.0, 32.0, 42.0, 16.0),
-            (4.0, 52.8, 42.0, 16.0),
-            (4.0, 73.5, 42.0, 16.0),
-            (54.0, 10.8, 42.0, 15.0),
-            (54.0, 31.2, 42.0, 15.0),
-            (54.0, 51.8, 42.0, 15.0),
-            (54.0, 72.4, 42.0, 15.0),
+        history_slots = [
+            {
+                "click": (4.0, 32.0, 42.0, 16.0),
+                "tags": (4.3, 38.5, 12.9, 8.8),
+                "content": (17.6, 32.2, 28.0, 15.3),
+            },
+            {
+                "click": (4.0, 52.8, 42.0, 16.0),
+                "tags": (4.3, 59.5, 12.9, 8.8),
+                "content": (17.6, 53.0, 28.0, 15.3),
+            },
+            {
+                "click": (4.0, 73.5, 42.0, 16.0),
+                "tags": (4.3, 80.6, 12.9, 8.6),
+                "content": (17.6, 73.8, 28.0, 15.2),
+            },
+            {
+                "click": (52.2, 10.8, 43.8, 15.0),
+                "tags": (52.7, 16.2, 12.7, 8.1),
+                "content": (65.8, 11.0, 29.8, 14.3),
+            },
+            {
+                "click": (52.2, 31.2, 43.8, 15.0),
+                "tags": (52.7, 36.5, 12.7, 8.1),
+                "content": (65.8, 31.4, 29.8, 14.3),
+            },
+            {
+                "click": (52.2, 51.8, 43.8, 15.0),
+                "tags": (52.7, 57.1, 12.7, 8.1),
+                "content": (65.8, 52.0, 29.8, 14.3),
+            },
+            {
+                "click": (52.2, 72.4, 43.8, 15.0),
+                "tags": (52.7, 77.7, 12.7, 8.1),
+                "content": (65.8, 72.6, 29.8, 14.3),
+            },
         ]
         overlay_parts = []
         date_slots = [
@@ -1782,22 +1983,28 @@ def render_history() -> None:
         for idx, record in enumerate(cells):
             if not record:
                 continue
-            x, y, w, h = slots[idx]
+            slot = history_slots[idx]
+            click_x, click_y, click_w, click_h = slot["click"]
+            tags_x, tags_y, tags_w, tags_h = slot["tags"]
+            text_x, text_y, text_w, text_h = slot["content"]
             raw_time = record.get("updated_at") or record.get("created_at") or ""
             try:
                 dt = datetime.fromisoformat(raw_time)
                 meta = dt.strftime("%H:%M")
             except Exception:
                 meta = ""
-            summary = escape(record.get("summary", ""))
-            mood = escape(record.get("mood", "") or "📝")
+            summary = escape(_history_preview(record))
+            tag_html = "".join(
+                f'<span class="tpl-history-tag">{escape(tag)}</span>'
+                for tag in _history_state_tags(record)
+            )
             overlay_parts.append(
                 f"""
-                <a class="tpl-history-hotspot" href="?open_history={escape(record['id'])}" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%;" aria-label="打开这条记录"></a>
-                <div class="tpl-card" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%;">
-                    <div style="font-size:clamp(16px,2vw,28px);">{mood}</div>
-                    <div>{summary}</div>
-                    <div style="color:#9a626d;margin-top:4px;">{meta}</div>
+                <a class="tpl-history-hotspot" href="?open_history={escape(record['id'])}" style="left:{click_x}%;top:{click_y}%;width:{click_w}%;height:{click_h}%;" aria-label="打开这条记录"></a>
+                <div class="tpl-history-tags" style="left:{tags_x}%;top:{tags_y}%;width:{tags_w}%;height:{tags_h}%;">{tag_html}</div>
+                <div class="tpl-history-content" style="left:{text_x}%;top:{text_y}%;width:{text_w}%;height:{text_h}%;">
+                    <div class="tpl-history-time">{meta}</div>
+                    <div class="tpl-history-text">{summary}</div>
                 </div>
                 """
             )
@@ -2130,6 +2337,38 @@ def _apply_psy_proactive(messages: List[Dict[str, Any]], scores: Dict[str, int],
     return True
 
 
+def _latest_model_source(messages: List[Dict[str, Any]]) -> str:
+    for msg in reversed(messages):
+        if msg.get("role") == "assistant":
+            return str(msg.get("model_source") or "")
+    return ""
+
+
+def _make_psy_model_message(
+    user_text: str,
+    messages: List[Dict[str, Any]],
+    scores: Dict[str, int],
+) -> tuple[Dict[str, Any], str]:
+    try:
+        reply, model_source = generate_treehole_model_reply(user_text, messages, scores)
+        fallback_errors = get_last_fallback_errors()
+        if fallback_errors and model_source != "local_finetuned":
+            st.session_state.psy_model_notice = (
+                f"本地微调模型暂时没加载成功，已改用 {model_source_label(model_source)}。"
+                f"原因：{fallback_errors[-1]}"
+            )
+        else:
+            st.session_state.psy_model_notice = ""
+    except TreeholeModelError as exc:
+        reply = generate_reply("psytest", user_text, messages, scores)
+        model_source = "local_template"
+        st.session_state.psy_model_notice = f"真实模型调用失败，已临时使用本地规则兜底。原因：{exc}"
+
+    assistant_message = make_message("assistant", reply)
+    assistant_message["model_source"] = model_source
+    return assistant_message, reply
+
+
 def _assessment_input_form() -> Optional[str]:
     with st.form("psy_live_input_form", clear_on_submit=True):
         st.markdown('<span id="assessment-input-anchor"></span>', unsafe_allow_html=True)
@@ -2156,6 +2395,12 @@ def render_live_chat() -> None:
         scores = st.session_state.get("psy_scores") or score_messages(messages)
 
     _assessment_chat_panel(messages, scores)
+    model_notice = st.session_state.get("psy_model_notice", "")
+    if model_notice:
+        st.warning(model_notice)
+    latest_source = _latest_model_source(messages)
+    if latest_source:
+        st.caption(f"本次回复来源：{model_source_label(latest_source)}")
 
     prompt = _assessment_input_form()
 
@@ -2174,9 +2419,9 @@ def render_live_chat() -> None:
                 queue_crisis_alert("psytest", assessment, user_text, "Echo")
             messages.append(assistant_message)
         else:
-            with st.spinner("Echo 正在整理下一轮评估追问..."):
-                reply = generate_reply("psytest", user_text, messages, scores)
-            messages.append(make_message("assistant", reply))
+            with st.spinner("Echo 正在调用真实模型..."):
+                assistant_message, reply = _make_psy_model_message(user_text, messages, scores)
+            messages.append(assistant_message)
         record_id = save_history_record("psytest", messages, scores, st.session_state.get("psy_record_id"), mood="")
         st.session_state.psy_record_id = record_id
         st.session_state.psy_messages = messages
@@ -2203,6 +2448,7 @@ def render_live_chat() -> None:
             st.session_state.psy_messages = [make_message("assistant", PSYTEST_INTRO_MESSAGE)]
             st.session_state.psy_scores = {}
             st.session_state.psy_record_id = None
+            st.session_state.psy_model_notice = ""
             st.session_state.show_psy_report = False
             st.session_state.psy_diary_text = ""
             st.session_state.psy_visible_exchange = {"user": "", "assistant": ""}
@@ -2223,6 +2469,9 @@ def render_history_chat() -> None:
     _open_shell("NOTE")
     _history_dialog(messages, record.get("title") or "历史对话", record)
     _close_shell()
+    latest_source = _latest_model_source(messages)
+    if latest_source:
+        st.caption(f"本次回复来源：{model_source_label(latest_source)}")
 
     text_record = record.get("conversation_text") or messages_to_readable_text(
         messages,
@@ -2267,7 +2516,9 @@ def render_history_chat() -> None:
                 queue_crisis_alert("psytest_history", assessment, prompt, "Echo")
             messages.append(assistant_message)
         else:
-            messages.append(make_message("assistant", generate_reply("psytest", prompt, messages, scores)))
+            with st.spinner("Echo 正在调用真实模型..."):
+                assistant_message, _ = _make_psy_model_message(prompt, messages, scores)
+            messages.append(assistant_message)
         update_history_messages(record_id, messages, scores)
         st.rerun()
 

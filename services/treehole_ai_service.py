@@ -6,6 +6,7 @@ rule-based demo fallback. This module keeps that fallback separate from real
 model calls so the UI can report which path produced a reply.
 """
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -29,28 +30,61 @@ TREEHOLE_SYSTEM_PROMPT = """
 5. 如果多模态补充或历史评分反馈出现，只把它当作语气参考，不要直接暴露给用户。
 """.strip()
 
+_LAST_FALLBACK_ERRORS: List[str] = []
+
+
+def get_last_fallback_errors() -> List[str]:
+    return list(_LAST_FALLBACK_ERRORS)
+
 
 def _provider() -> str:
-    return os.getenv("TREEHOLE_REPLY_PROVIDER", "auto").strip().lower() or "auto"
+    configured = os.getenv("ECHO_REPLY_PROVIDER") or os.getenv("TREEHOLE_REPLY_PROVIDER") or "auto"
+    return configured.strip().lower() or "auto"
 
 
 def _default_lora_path() -> Path:
     return Path(__file__).resolve().parents[1] / "qwen_psychology_finetuned"
 
 
+def _checkpoint_rank(path: Path) -> int:
+    match = re.search(r"checkpoint-(\d+)$", path.name)
+    return int(match.group(1)) if match else -1
+
+
+def _resolve_lora_checkpoint(path: Path) -> Path:
+    if (path / "adapter_config.json").exists():
+        return path
+    if not path.exists() or not path.is_dir():
+        return path
+
+    checkpoints = [
+        child
+        for child in path.iterdir()
+        if child.is_dir() and child.name.startswith("checkpoint-") and (child / "adapter_config.json").exists()
+    ]
+    if not checkpoints:
+        return path
+    return max(checkpoints, key=_checkpoint_rank)
+
+
 def _configured_lora_path() -> Path:
     raw = os.getenv("LOCAL_LORA_PATH") or os.getenv("QWEN_LORA_PATH") or ""
     if not raw.strip():
-        return _default_lora_path()
+        return _resolve_lora_checkpoint(_default_lora_path())
     path = Path(raw).expanduser()
     if not path.is_absolute():
         path = Path(__file__).resolve().parents[1] / path
-    return path
+    return _resolve_lora_checkpoint(path)
 
 
 def has_local_finetuned_model() -> bool:
     path = _configured_lora_path()
-    return path.exists() and path.is_dir()
+    return (
+        path.exists()
+        and path.is_dir()
+        and (path / "adapter_config.json").exists()
+        and (path / "adapter_model.safetensors").exists()
+    )
 
 
 def _messages_for_model(
@@ -118,25 +152,38 @@ def generate_treehole_model_reply(
     Returns:
         (reply_text, source), where source is "deepseek" or "local_finetuned".
     """
+    global _LAST_FALLBACK_ERRORS
+    _LAST_FALLBACK_ERRORS = []
     provider = _provider()
     model_messages = _messages_for_model(user_text, messages, scores)
     errors: List[str] = []
 
-    if provider in {"auto", "deepseek"}:
-        try:
-            return _reply_with_deepseek(model_messages), "deepseek"
-        except Exception as exc:
-            errors.append(f"DeepSeek 调用失败：{exc}")
-            if provider == "deepseek":
-                raise TreeholeModelError("; ".join(errors)) from exc
+    if provider == "auto":
+        providers = ["local_finetuned", "deepseek"] if has_local_finetuned_model() else ["deepseek", "local_finetuned"]
+    elif provider == "deepseek":
+        providers = ["deepseek"]
+    elif provider in {"local", "local_finetuned", "qwen", "qwen_lora"}:
+        providers = ["local_finetuned"]
+    else:
+        raise TreeholeModelError(f"未知树洞回复模型配置：{provider}")
 
-    if provider in {"auto", "local", "local_finetuned", "qwen", "qwen_lora"}:
-        try:
-            return _reply_with_local_model(model_messages), "local_finetuned"
-        except Exception as exc:
-            errors.append(f"本地微调模型调用失败：{exc}")
-            if provider != "auto":
-                raise TreeholeModelError("; ".join(errors)) from exc
+    for current_provider in providers:
+        if current_provider == "deepseek":
+            try:
+                return _reply_with_deepseek(model_messages), "deepseek"
+            except Exception as exc:
+                errors.append(f"DeepSeek 调用失败：{exc}")
+                _LAST_FALLBACK_ERRORS = list(errors)
+                if provider == "deepseek":
+                    raise TreeholeModelError("; ".join(errors)) from exc
+        else:
+            try:
+                return _reply_with_local_model(model_messages), "local_finetuned"
+            except Exception as exc:
+                errors.append(f"本地微调模型调用失败：{exc}")
+                _LAST_FALLBACK_ERRORS = list(errors)
+                if provider != "auto":
+                    raise TreeholeModelError("; ".join(errors)) from exc
 
     raise TreeholeModelError("; ".join(errors) or f"未知树洞回复模型配置：{provider}")
 

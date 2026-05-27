@@ -35,10 +35,16 @@ mental_data.csv
 
 # 本地 AI 模型（大文件，不提交）
 models/
+qwen_psychology*/
+checkpoint-*/
+*.safetensors
+*.pt
+*.bin
 
 # 下载/运行日志
 *.log
 modelscope_download_*.log
+null
 
 # 本地工具脚本（按需提交）
 scripts/

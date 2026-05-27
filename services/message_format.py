@@ -1,6 +1,8 @@
 """
 Helpers for storing and displaying chat messages as readable plain text.
 """
+import json
+import os
 import re
 from datetime import datetime
 from html import unescape
@@ -124,3 +126,59 @@ def messages_to_readable_text(messages: Any, title: str = "对话记录") -> str
         lines.extend([header, content, ""])
 
     return "\n".join(lines).strip() + ("\n" if lines else "")
+
+
+def dumps_storage_json(data: Any) -> str:
+    """Serialize runtime storage JSON compactly unless pretty output is requested."""
+    pretty = os.getenv("ECHO_PRETTY_JSON", "").strip().lower() in {"1", "true", "yes", "on"}
+    if pretty:
+        return json.dumps(data, ensure_ascii=False, indent=2)
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+
+
+def compact_session_record(data: Any) -> Any:
+    """
+    Return a storage-light session record.
+
+    Older records kept the same conversation in multiple fields. New writes keep
+    only ``messages`` on disk; compatibility fields are restored by
+    ``hydrate_session_record`` when records are loaded.
+    """
+    if not isinstance(data, dict):
+        return data
+
+    compact = dict(data)
+    messages = normalize_messages(compact.get("messages") or compact.get("display_messages") or [])
+    if messages:
+        compact["messages"] = messages
+    else:
+        compact.pop("messages", None)
+
+    for field in (
+        "display_messages",
+        "conversation_text",
+        "diary_profile",
+        "diary_moods",
+        "user_profile_summary",
+    ):
+        compact.pop(field, None)
+
+    compact["storage_version"] = "diary_v3_compact"
+    return compact
+
+
+def hydrate_session_record(data: Any, include_conversation_text: bool = True) -> Any:
+    """Restore compatibility fields expected by existing UI/read paths."""
+    if not isinstance(data, dict):
+        return data
+
+    hydrated = dict(data)
+    messages = normalize_messages(hydrated.get("messages") or hydrated.get("display_messages") or [])
+    hydrated["messages"] = messages
+    hydrated["display_messages"] = messages
+
+    if include_conversation_text and not hydrated.get("conversation_text"):
+        title = hydrated.get("title") or hydrated.get("summary") or "conversation"
+        hydrated["conversation_text"] = messages_to_readable_text(messages, title)
+
+    return hydrated

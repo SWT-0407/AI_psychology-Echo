@@ -331,10 +331,8 @@ def render_profile_page() -> None:
 
     _render_summary(summary)
 
-    st.markdown('<section class="profile-band">', unsafe_allow_html=True)
     st.subheader("陪伴偏好")
     _render_preferences(profile)
-    st.markdown("</section>", unsafe_allow_html=True)
 
     signals = list_profile_signals(include_hidden=True)
     current_tab, hidden_tab = st.tabs(["当前画像", "已隐藏/否定"])

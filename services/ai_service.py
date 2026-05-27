@@ -12,6 +12,7 @@ from Multimodal.config import (
     DEEPSEEK_API_KEY, DEEPSEEK_API_BASE_URL, DEEPSEEK_MODEL_NAME,
     QWEN_API_KEY, QWEN_API_BASE_URL, QWEN_VISION_MODEL,
     QWEN_ASR_MODEL, QWEN_TTS_MODEL, QWEN_TTS_VOICE,
+    FACE_EMOTION_LABELS, FACE_EMOTION_ALIASES,
 )
 
 
@@ -151,30 +152,8 @@ def analyze_user_image(image_bytes, user_text="", mime_type="image/png", detail=
 # 千问：表情分析（专用版，短 prompt 快速响应）
 # ==========================================
 
-_FACE_EMOTION_CN = {
-    "happy": "开心",
-    "sad": "悲伤",
-    "angry": "生气",
-    "surprise": "惊讶",
-    "fear": "恐惧",
-    "disgust": "厌恶",
-    "neutral": "平静",
-    "contempt": "轻蔑",
-    "anxious": "焦虑",
-    "tired": "疲惫",
-    "unknown": "未识别",
-}
-
-_FACE_EMOTION_ALIASES = {
-    "surprised": "surprise",
-    "fearful": "fear",
-    "disgusted": "disgust",
-    "calm": "neutral",
-    "normal": "neutral",
-    "uncertain": "unknown",
-    "无法判断": "unknown",
-    "未识别": "unknown",
-}
+_FACE_EMOTION_CN = {key: value["cn"] for key, value in FACE_EMOTION_LABELS.items()}
+_FACE_EMOTION_ALIASES = FACE_EMOTION_ALIASES
 
 
 def _normalize_face_emotion(label):
@@ -231,10 +210,15 @@ def analyze_facial_expression(image_bytes, detail="low"):
         EMOTION_ANALYSIS_TEMPERATURE,
         EMOTION_ANALYSIS_MAX_TOKENS,
         build_face_scale_description,
+        build_face_label_description,
     )
 
     scale_desc = build_face_scale_description()
-    prompt = EMOTION_ANALYSIS_PROMPT.format(face_scale_desc=scale_desc)
+    label_desc = build_face_label_description()
+    prompt = EMOTION_ANALYSIS_PROMPT.format(
+        face_scale_desc=scale_desc,
+        face_label_desc=label_desc,
+    )
 
     if not QWEN_API_KEY:
         return _emotion_error_result("not_configured", "API未配置", "QWEN_API_KEY 未配置")

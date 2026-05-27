@@ -28,6 +28,61 @@ QWEN_TTS_VOICE = "longxiaochun"            # 音色：longxiaochun（知性女�
 # 面部情绪分析配置（精细化维度模型）
 # ==========================================
 
+FACE_EMOTION_LABELS = {
+    "happy": {"cn": "开心", "emoji": "😊", "cue": "明显微笑、嘴角上扬、眼部放松或有笑意"},
+    "content": {"cn": "满足", "emoji": "🙂", "cue": "轻微微笑、表情柔和、整体舒展"},
+    "relaxed": {"cn": "放松", "emoji": "😌", "cue": "眉眼舒展、面部肌肉不紧绷、低唤醒但不疲惫"},
+    "focused": {"cn": "专注", "emoji": "🧐", "cue": "视线稳定、轻微皱眉或凝视、参与度较高"},
+    "neutral": {"cn": "平静", "emoji": "😐", "cue": "缺少明确情绪方向，面部线索接近中性"},
+    "sad": {"cn": "悲伤", "emoji": "😢", "cue": "嘴角下压、眼神低落、面部松垮或沉重"},
+    "disappointed": {"cn": "失落", "emoji": "😞", "cue": "轻度悲伤、眼神黯淡、嘴角轻微下垂"},
+    "anxious": {"cn": "焦虑", "emoji": "😰", "cue": "眉头紧张、眼神游移或睁大、面部紧绷"},
+    "stressed": {"cn": "压力大", "emoji": "😣", "cue": "眉间收紧、咬唇/抿嘴、额头或下颌紧绷"},
+    "nervous": {"cn": "紧张", "emoji": "😬", "cue": "僵硬微笑、嘴唇紧闭、眼神不稳定"},
+    "tired": {"cn": "疲惫", "emoji": "😴", "cue": "眼睑下垂、无精打采、面部活力低"},
+    "bored": {"cn": "无聊", "emoji": "🥱", "cue": "眼神涣散、低参与、表情平淡但非放松"},
+    "confused": {"cn": "困惑", "emoji": "🤔", "cue": "眉形不对称、皱眉、头部/视线呈疑问感"},
+    "surprise": {"cn": "惊讶", "emoji": "😮", "cue": "眉毛上扬、眼睛睁大、嘴巴张开"},
+    "fear": {"cn": "恐惧", "emoji": "😨", "cue": "眼睛睁大、嘴角后拉、紧张回避"},
+    "angry": {"cn": "生气", "emoji": "😠", "cue": "眉头下压、目光锐利、嘴唇紧抿或下颌紧"},
+    "frustrated": {"cn": "烦躁", "emoji": "😤", "cue": "紧抿嘴、皱眉、表情压抑或不耐烦"},
+    "disgust": {"cn": "厌恶", "emoji": "🤢", "cue": "鼻翼皱起、上唇抬起、回避感明显"},
+    "contempt": {"cn": "轻蔑", "emoji": "😏", "cue": "单侧嘴角上扬、表情不对称、轻微嘲讽感"},
+    "embarrassed": {"cn": "尴尬", "emoji": "😳", "cue": "僵硬笑、视线回避、羞赧或不自在"},
+    "withdrawn": {"cn": "回避", "emoji": "🙁", "cue": "视线躲闪、低参与、面部封闭或退缩"},
+    "unknown": {"cn": "未识别", "emoji": "⚪", "cue": "脸部不清晰、遮挡、角度不佳或无法稳定判断"},
+}
+
+FACE_EMOTION_ALIASES = {
+    "surprised": "surprise",
+    "fearful": "fear",
+    "disgusted": "disgust",
+    "calm": "relaxed",
+    "normal": "neutral",
+    "uncertain": "unknown",
+    "worried": "anxious",
+    "worry": "anxious",
+    "tense": "stressed",
+    "stress": "stressed",
+    "fatigued": "tired",
+    "sleepy": "tired",
+    "sadness": "sad",
+    "upset": "frustrated",
+    "pensive": "focused",
+    "thoughtful": "focused",
+    "avoidant": "withdrawn",
+    "无法判断": "unknown",
+    "未识别": "unknown",
+}
+
+
+def build_face_label_description():
+    """生成面部情绪标签候选和可观察线索。"""
+    return "\n".join(
+        f"- {key}（{item['cn']}）：{item['cue']}"
+        for key, item in FACE_EMOTION_LABELS.items()
+    )
+
 # 情绪分析 prompt 模板
 # {face_scale_desc} 会被替换为维度量表描述
 EMOTION_ANALYSIS_PROMPT = (
@@ -37,8 +92,8 @@ EMOTION_ANALYSIS_PROMPT = (
     "眼睑下垂、紧绷或回避表情一律归为 neutral。\n\n"
     "请严格按照以下量表进行评分（0.0~1.0，保留两位小数）：\n"
     "{face_scale_desc}\n\n"
-    "同时给出一个主情绪标签（必须从以下英文标签中选择）："
-    "happy, sad, angry, surprise, fear, disgust, neutral, contempt, anxious, tired, unknown\n"
+    "同时给出一个主情绪标签，必须从下列英文标签中选择。优先选择最具体且有可见证据的标签：\n"
+    "{face_label_desc}\n\n"
     "只有在缺少明确表情线索时才选择 neutral；如果面部区域不清晰或无法判断，请选择 unknown，"
     "并将 confidence 设为 0.3 以下。\n\n"
     "请只返回JSON格式：\n"

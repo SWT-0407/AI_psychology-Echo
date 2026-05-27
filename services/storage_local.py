@@ -9,7 +9,13 @@ import glob
 from datetime import datetime
 import streamlit as st
 
-from services.message_format import messages_to_readable_text, normalize_messages
+from services.message_format import (
+    compact_session_record,
+    dumps_storage_json,
+    hydrate_session_record,
+    messages_to_readable_text,
+    normalize_messages,
+)
 
 # 本地数据存储目录
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
@@ -59,7 +65,7 @@ def save_complete_session(session_id, data):
     # 保存完整记录到一个 JSON 文件
     record_file = os.path.join(HISTORY_DIR, f"{session_id}.json")
     with open(record_file, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write(dumps_storage_json(compact_session_record(data)))
 
 
 # ==========================================
@@ -95,7 +101,7 @@ def load_session(session_id):
                 "ai_suggestion": "",
                 "ai_direction": "",
             }
-        return data
+        return hydrate_session_record(data)
     return None
 
 
@@ -275,7 +281,7 @@ def auto_save_current_session():
     if st.session_state.get("cloud_consent", False):
         try:
             from services.storage_cloud import upload_session_to_cloud
-            upload_full = st.session_state.get("upload_full_content", True)
+            upload_full = st.session_state.get("upload_full_content", False)
             upload_session_to_cloud(session_id, record_data, upload_full)
         except Exception:
             pass  # 云端同步失败不影响本地保存

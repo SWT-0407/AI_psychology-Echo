@@ -193,15 +193,14 @@ def _render_profile_snapshot() -> None:
     else:
         tag_html = "".join(f'<span class="profile-tag">{escape(str(tag))}</span>' for tag in tags[:6])
     topic_html = "、".join(escape(str(topic)) for topic in topics[:4])
-    safety_gate = summary.get("safety_gate_level") or ""
-    risk_text = "重点关注" if summary.get("risk_level") in {"medium", "high"} or safety_gate in {"R2", "R3"} else "常规陪伴"
+    activity_text = f"持续更新 · 已记录 {summary.get('total_events', 0)} 次互动"
 
     st.markdown(
         f"""
         <div class="profile-panel">
             <div class="profile-head">
                 <span>用户画像中枢</span>
-                <span>{escape(risk_text)} · 已记录 {escape(str(summary.get("total_events", 0)))} 次互动</span>
+                <span>{escape(activity_text)}</span>
             </div>
             <div class="profile-grid">
                 <div class="profile-cell">
