@@ -11,8 +11,9 @@ from typing import Iterable, List
 
 
 DEFAULT_CRISIS_RESOURCE_TEXT = (
-    "如果你正处在现实危险中，建议你尽快联系身边可信任的人陪你，"
-    "也可以主动联系当地紧急救援电话、学校心理中心、辅导员或校医院。"
+    "如果你正处在现实危险中，请立刻联系当地紧急救援电话或身边可信任的人陪你；"
+    "如果你在美国，也可以拨打或短信联系 988 Suicide & Crisis Lifeline。"
+    "你也可以主动联系学校心理中心、辅导员、校医院或持证心理/精神卫生专业人士。"
 )
 
 SELF_HARM_PATTERNS = [
@@ -34,6 +35,22 @@ SELF_HARM_PATTERNS = [
     "遗书",
 ]
 
+HARM_OTHERS_PATTERNS = [
+    "伤害别人",
+    "伤害他人",
+    "伤人",
+    "杀人",
+    "杀了他",
+    "杀了她",
+    "杀了他们",
+    "弄死",
+    "报复社会",
+    "同归于尽",
+    "带走别人",
+    "砍人",
+    "捅人",
+]
+
 IMMINENT_PATTERNS = [
     "马上",
     "现在就",
@@ -47,6 +64,9 @@ IMMINENT_PATTERNS = [
     "楼顶",
     "窗边",
     "绳",
+    "武器",
+    "煤气",
+    "农药",
 ]
 
 DISTRESS_PATTERNS = [
@@ -69,6 +89,10 @@ NEGATION_PATTERNS = [
     "没有自杀",
     "不打算自杀",
     "没有轻生",
+    "不会伤害别人",
+    "不会伤害他人",
+    "不想伤害别人",
+    "不想伤害他人",
 ]
 
 
@@ -102,11 +126,12 @@ def assess_message_safety(text: str) -> SafetyAssessment:
         return SafetyAssessment("none", [])
 
     self_harm = _matches(normalized, SELF_HARM_PATTERNS)
+    harm_others = _matches(normalized, HARM_OTHERS_PATTERNS)
     negations = _matches(normalized, NEGATION_PATTERNS)
     imminent = _matches(normalized, IMMINENT_PATTERNS)
 
-    if self_harm and not negations:
-        terms = list(dict.fromkeys(self_harm + imminent))
+    if (self_harm or harm_others) and not negations:
+        terms = list(dict.fromkeys(self_harm + harm_others + imminent))
         return SafetyAssessment("crisis", terms)
 
     distress = _matches(normalized, DISTRESS_PATTERNS)
@@ -126,10 +151,11 @@ def make_safety_reply(assessment: SafetyAssessment, assistant_name: str = "Echo"
     if assessment.is_crisis:
         return (
             f"我很认真地看到了这句话。{assistant_name}可以陪你说话，"
-            "但我不能替代现实中的紧急帮助；系统也不会在后台替你联系任何机构或个人。\n\n"
+            "但我不能替代现实中的紧急帮助或专业判断；系统也不会在后台替你联系任何机构或个人。\n\n"
             f"{resources}\n\n"
             "如果你愿意，我建议你先考虑三件很小但重要的事：暂时离开可能伤害自己的物品或地点；"
-            "把这段话发给一个此刻能联系到的人；尽量不要一个人待着。\n\n"
+            "把这段话发给一个此刻能联系到的人；尽量不要一个人待着。"
+            "如果你担心自己会伤害别人，也请先拉开距离、放下可能造成伤害的物品，并联系现实中的专业支持。\n\n"
             "如果你愿意，只回我一个数字也可以：1=我现在有危险，2=我有念头但还安全，3=我只是太痛苦了。"
         )
 

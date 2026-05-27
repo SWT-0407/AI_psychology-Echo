@@ -26,6 +26,7 @@ from services.app_storage import (
 from services.local_ai import generate_proactive_message, generate_reply, score_messages
 from services.proactive_engine import maybe_add_character_proactive
 from services.safety import assess_message_safety, attach_safety_metadata, make_safety_reply
+from ui.crisis_alert import queue_crisis_alert, render_crisis_alert_if_needed
 from ui.multimodal_controls import build_multimodal_prompt, get_multimodal_manager, render_multimodal_controls
 
 
@@ -1405,6 +1406,9 @@ def _submit_companion_message(selected: Dict[str, Any], prompt: str, emotion=Non
     if assessment.needs_support:
         assistant_message["safety_response"] = True
         assistant_message["safety_level"] = assessment.level
+        if assessment.is_crisis:
+            assistant_message["crisis_popup"] = True
+            queue_crisis_alert("companion", assessment, prompt, selected.get("name", "Echo"))
     messages.append(assistant_message)
     save_companion_messages(selected["id"], messages)
     update_companion_state(selected, prompt or "我发了一张图片。", reply, emotion)
@@ -1762,6 +1766,7 @@ def _render_message_form(selected: Optional[Dict[str, Any]]) -> None:
 
 def render_companion_page() -> None:
     _inject_css()
+    render_crisis_alert_if_needed()
     st.session_state.page = "companion"
 
     characters = _handle_contact_action(load_characters())

@@ -5,8 +5,10 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from html import escape
 from Multimodal.config import DIMENSIONS, DIMENSION_KEYS
 from services.storage_local import load_session, get_all_trend_data
+from services.message_format import html_to_readable_text, normalize_messages
 from utils.visualization import draw_radar_chart, configure_chinese_font
 from utils.status_assets import get_status_assets
 
@@ -80,7 +82,7 @@ def render_history_detail_page(session_id):
         unsafe_allow_html=True
     )
 
-    display_messages = data.get("display_messages", [])
+    display_messages = normalize_messages(data.get("display_messages", []))
     with st.container():
         st.markdown(
             '<div class="glass-card" style="padding: 1rem 1.2rem; max-height: 400px; '
@@ -91,10 +93,7 @@ def render_history_detail_page(session_id):
             role = msg.get("role", "")
             content = msg.get("content", "")
             with st.chat_message(role):
-                st.markdown(
-                    f'<div class="chat-message-content">{content}</div>',
-                    unsafe_allow_html=True
-                )
+                st.markdown(content)
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<hr>', unsafe_allow_html=True)
@@ -196,11 +195,11 @@ def render_history_detail_page(session_id):
             unsafe_allow_html=True
         )
 
-        ai_suggestion = data.get("ai_suggestion", "")
+        ai_suggestion = html_to_readable_text(data.get("ai_suggestion", ""))
         if ai_suggestion:
             st.markdown(
                 f'<div class="glass-card" style="padding: 1rem; font-size: 0.88rem; '
-                f'line-height: 1.7; color: #4a5a6a;">{ai_suggestion}</div>',
+                f'line-height: 1.7; color: #4a5a6a;">{escape(ai_suggestion).replace(chr(10), "<br/>")}</div>',
                 unsafe_allow_html=True
             )
         else:

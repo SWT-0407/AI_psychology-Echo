@@ -19,8 +19,10 @@ from services.app_storage import (
     update_history_messages,
 )
 from services.local_ai import DIMENSIONS, generate_reply, make_report, score_messages
+from services.message_format import messages_to_readable_text, normalize_messages
 from services.proactive_engine import maybe_add_care_proactive
 from services.safety import assess_message_safety, attach_safety_metadata, make_safety_reply
+from ui.crisis_alert import queue_crisis_alert, render_crisis_alert_if_needed
 
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "assets" / "diary_templates"
@@ -384,6 +386,12 @@ DIARY_CSS = """
         linear-gradient(90deg, #edf0f2 1px, transparent 1px);
     background-size: 22px 22px;
 }
+.history-dialog {
+    padding-bottom: 42px;
+}
+.history-dialog .msg-stack {
+    max-width: min(72%, 760px);
+}
 .chat-paper:before {
     content: "⭐  🧦";
     position: absolute;
@@ -495,7 +503,16 @@ DIARY_CSS = """
     margin-bottom: 0;
     background-size: 100% 100%;
 }
-.template-calendar { aspect-ratio: 1103 / 827; }
+.template-calendar {
+    width: 100vw;
+    height: 100vh;
+    aspect-ratio: auto;
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    margin-top: -1rem;
+    margin-bottom: 0;
+    background-size: 100% 100%;
+}
 .template-history { aspect-ratio: 1093 / 819; }
 .template-chat { aspect-ratio: 1101 / 826; }
 .template-overlay {
@@ -670,6 +687,19 @@ DIARY_CSS = """
     color: #55484e;
     font-size: clamp(10px, 1.1vw, 14px);
     line-height: 1.35;
+}
+.tpl-history-hotspot {
+    position: absolute;
+    display: block;
+    border-radius: 8px;
+    background: transparent;
+    pointer-events: auto;
+    z-index: 7;
+}
+.tpl-history-hotspot:hover {
+    background: rgba(255, 204, 216, .16);
+    outline: 2px dashed rgba(238, 113, 139, .62);
+    outline-offset: -5px;
 }
 .tpl-date-chip {
     position: absolute;
@@ -1046,16 +1076,18 @@ def _template_data_url(name: str) -> Optional[str]:
     return f"data:{mime};base64,{encoded}"
 
 
+def _clean_html_fragment(fragment: str) -> str:
+    return "".join(line.strip() for line in str(fragment or "").splitlines() if line.strip())
+
+
 def _render_template(name: str, overlays: str = "") -> bool:
     url = _template_data_url(name)
     if not url:
         return False
+    clean_overlays = _clean_html_fragment(overlays)
     st.markdown(
-        f"""
-        <div class="template-frame template-{name}" style="background-image: url('{url}');">
-            <div class="template-overlay">{overlays}</div>
-        </div>
-        """,
+        f"<div class=\"template-frame template-{name}\" style=\"background-image: url('{url}');\">"
+        f"<div class=\"template-overlay\">{clean_overlays}</div></div>",
         unsafe_allow_html=True,
     )
     return True
@@ -1282,6 +1314,8 @@ def render_calendar() -> None:
         weeks_for_overlay = cal_for_overlay.monthdayscalendar(year, month)
         overlay_parts = []
         modal_parts = []
+        row_tops = [26.55, 38.05, 49.65, 61.55, 73.7, 85.1]
+        row_heights = [10.35, 10.35, 10.45, 10.55, 10.65, 8.5]
 
         for row_idx, week in enumerate(weeks_for_overlay):
             for col_idx, day in enumerate(week):
@@ -1290,15 +1324,16 @@ def render_calendar() -> None:
                 key = f"{year}-{month:02d}-{day:02d}"
                 entry = _mood_entry(moods, key)
                 cell_left = 15.6 + col_idx * 11.75
-                cell_top = 25.2 + row_idx * 11.55
+                cell_top = row_tops[min(row_idx, len(row_tops) - 1)]
+                cell_height = row_heights[min(row_idx, len(row_heights) - 1)]
                 modal_id = f"calendar-modal-{key}"
                 overlay_parts.append(
                     f'<a class="tpl-day-hotspot" href="#{modal_id}" '
-                    f'style="left:{cell_left:.2f}%;top:{cell_top:.2f}%;width:11.75%;height:11.55%;" aria-label="编辑 {key}"></a>'
+                    f'style="left:{cell_left:.2f}%;top:{cell_top:.2f}%;width:11.75%;height:{cell_height:.2f}%;" aria-label="编辑 {key}"></a>'
                 )
                 if entry["emoji"] or entry["event"]:
                     overlay_parts.append(
-                        f'<div class="tpl-mood-entry" style="left:{cell_left + 1.1:.2f}%;top:{cell_top + 2.2:.2f}%;width:9.5%;height:8.2%;">'
+                        f'<div class="tpl-mood-entry" style="left:{cell_left + 1.1:.2f}%;top:{cell_top + 2.55:.2f}%;width:9.5%;height:{max(cell_height - 2.75, 5.8):.2f}%;">'
                         f'<div class="entry-emoji">{escape(entry["emoji"])}</div>'
                         f'<div class="entry-event">{escape(entry["event"])}</div></div>'
                     )
@@ -1371,6 +1406,13 @@ def _history_card(record: Optional[Dict[str, Any]], fallback_dt: datetime) -> st
 
 
 def render_history() -> None:
+    open_history_id = _query_value("open_history")
+    if open_history_id:
+        st.session_state.selected_history_id = open_history_id
+        st.session_state.diary_stage = "HISTORY_CHAT"
+        st.query_params.clear()
+        st.rerun()
+
     records = list_history_records("psytest")
     page_size = 7
     total_pages = max(1, (len(records) + page_size - 1) // page_size)
@@ -1427,6 +1469,7 @@ def render_history() -> None:
             mood = escape(record.get("mood", "") or "📝")
             overlay_parts.append(
                 f"""
+                <a class="tpl-history-hotspot" href="?open_history={escape(record['id'])}" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%;" aria-label="打开这条记录"></a>
                 <div class="tpl-card" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%;">
                     <div style="font-size:clamp(16px,2vw,28px);">{mood}</div>
                     <div>{summary}</div>
@@ -1436,21 +1479,6 @@ def render_history() -> None:
             )
         _render_template("history", "".join(overlay_parts))
 
-        for row in range(4):
-            cols = st.columns(2)
-            for col_idx in range(2):
-                idx = row * 2 + col_idx
-                if idx >= page_size:
-                    continue
-                record = cells[idx]
-                with cols[col_idx]:
-                    if record:
-                        if st.button("打开这条记录", key=f"open_hist_tpl_{record['id']}", use_container_width=True):
-                            st.session_state.selected_history_id = record["id"]
-                            st.session_state.diary_stage = "HISTORY_CHAT"
-                            st.rerun()
-                    else:
-                        st.button("空白记录框", key=f"empty_hist_tpl_{page}_{idx}", disabled=True, use_container_width=True)
         c1, c2, c3 = st.columns([1, 1, 1])
         with c1:
             if st.button("上一页", disabled=page <= 0, use_container_width=True, key="history_prev_tpl"):
@@ -1584,6 +1612,28 @@ def _chat_paper(messages: List[Dict[str, Any]], title: str) -> None:
     st.markdown("".join(html), unsafe_allow_html=True)
 
 
+def _history_dialog(messages: List[Dict[str, Any]], title: str, record: Dict[str, Any]) -> None:
+    messages = normalize_messages(messages)
+    raw_time = record.get("updated_at") or record.get("created_at") or record.get("timestamp") or ""
+    try:
+        time_text = datetime.fromisoformat(str(raw_time)).strftime("%Y.%m.%d %H:%M")
+    except Exception:
+        time_text = str(raw_time)[:16]
+    rows = "".join(
+        _clean_html_fragment(_message_html(msg))
+        for msg in messages
+        if str(msg.get("content", "")).strip()
+    )
+    if not rows:
+        rows = '<div class="tip-box">这条记录还没有可显示的对话内容。</div>'
+    st.markdown(
+        f"<div class=\"chat-paper history-dialog\">"
+        f"<div class=\"chat-top\"><div>{escape(time_text)}</div><div>{escape(title or '历史对话')}</div></div>"
+        f"{rows}</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _turn_diary_page() -> None:
     st.session_state.psy_visible_exchange = {"user": "", "assistant": ""}
     st.session_state.psy_diary_text = ""
@@ -1676,6 +1726,9 @@ def render_live_chat() -> None:
             assistant_message = make_message("assistant", reply)
             assistant_message["safety_response"] = True
             assistant_message["safety_level"] = assessment.level
+            if assessment.is_crisis:
+                assistant_message["crisis_popup"] = True
+                queue_crisis_alert("psytest", assessment, user_text, "Echo")
             messages.append(assistant_message)
         else:
             with st.spinner("Echo 正在右页写回复..."):
@@ -1729,12 +1782,17 @@ def render_history_chat() -> None:
             st.rerun()
         return
 
-    messages = record.get("messages") or record.get("display_messages") or []
+    messages = normalize_messages(record.get("messages") or record.get("display_messages") or [])
     _open_shell("NOTE")
-    _chat_paper(messages, "History Chat")
+    _history_dialog(messages, record.get("title") or "历史对话", record)
     _close_shell()
 
-    c1, c2 = st.columns(2)
+    text_record = record.get("conversation_text") or messages_to_readable_text(
+        messages,
+        record.get("title") or "历史对话",
+    )
+
+    c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("返回历史记录", use_container_width=True, key="back_history_list"):
             st.session_state.selected_history_id = None
@@ -1748,6 +1806,15 @@ def render_history_chat() -> None:
             st.session_state.selected_history_id = None
             st.session_state.diary_stage = "NOTE"
             st.rerun()
+    with c3:
+        st.download_button(
+            "下载文字记录",
+            data=text_record,
+            file_name=f"{record_id}_对话记录.txt",
+            mime="text/plain",
+            use_container_width=True,
+            key="download_history_text",
+        )
 
     prompt = st.chat_input("继续追问或补充这条历史记录...", key="history_chat_input")
     if prompt:
@@ -1758,6 +1825,9 @@ def render_history_chat() -> None:
             assistant_message = make_message("assistant", make_safety_reply(assessment, "Echo"))
             assistant_message["safety_response"] = True
             assistant_message["safety_level"] = assessment.level
+            if assessment.is_crisis:
+                assistant_message["crisis_popup"] = True
+                queue_crisis_alert("psytest_history", assessment, prompt, "Echo")
             messages.append(assistant_message)
         else:
             messages.append(make_message("assistant", generate_reply("psytest", prompt, messages, scores)))
@@ -1800,6 +1870,7 @@ def render_nav() -> None:
 
 def render_psytest_diary() -> None:
     _inject_css()
+    render_crisis_alert_if_needed()
     stage = st.session_state.get("diary_stage", "cover")
 
     if stage == "cover":

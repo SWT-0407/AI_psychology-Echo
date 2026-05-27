@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional
 
 import streamlit as st
 
+from services.message_format import messages_to_readable_text, normalize_messages
+
 
 DATA_ROOT = Path(__file__).resolve().parents[1] / "data"
 HISTORY_DIR = DATA_ROOT / "history"
@@ -187,6 +189,7 @@ def build_session_payload(
     mood: str = "",
 ) -> Dict[str, Any]:
     old = old or {}
+    messages = normalize_messages(messages)
     timestamp = old.get("timestamp") or old.get("created_at") or now_iso()
     summary = summarize_messages(messages)
     profile = st.session_state.get("diary_profile") or load_profile() or {}
@@ -210,6 +213,7 @@ def build_session_payload(
         "updated_at": now_iso(),
         "display_messages": messages,
         "messages": messages,
+        "conversation_text": messages_to_readable_text(messages, title or old.get("title") or summary),
         "scores": scores,
         "summary": summary,
         "mood": mood or old.get("mood", ""),

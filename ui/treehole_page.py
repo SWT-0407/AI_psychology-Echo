@@ -10,6 +10,7 @@ from services.app_storage import make_message, message_time, save_history_record
 from services.local_ai import generate_reply, score_messages
 from services.proactive_engine import maybe_add_care_proactive
 from services.safety import assess_message_safety, attach_safety_metadata, make_safety_reply
+from ui.crisis_alert import queue_crisis_alert, render_crisis_alert_if_needed
 from ui.multimodal_controls import build_multimodal_prompt, render_multimodal_controls
 
 
@@ -213,6 +214,10 @@ div[data-testid="stForm"]:has(#treehole-diary-anchor) div[data-testid="stElement
     width: 10% !important;
     z-index: 60 !important;
     pointer-events: auto !important;
+}
+div[data-testid="stForm"]:has(#treehole-diary-anchor) div[data-testid="stElementContainer"]:has(div[data-testid="stFormSubmitButton"]):last-of-type {
+    left: 77% !important;
+    top: 81% !important;
 }
 div[data-testid="stForm"]:has(#treehole-diary-anchor) div[data-testid="stFormSubmitButton"] {
     position: relative !important;
@@ -525,6 +530,9 @@ def _submit_treehole_message(prompt: str, emotion=None) -> None:
         assistant_message = make_message("assistant", reply)
         assistant_message["safety_response"] = True
         assistant_message["safety_level"] = assessment.level
+        if assessment.is_crisis:
+            assistant_message["crisis_popup"] = True
+            queue_crisis_alert("treehole", assessment, prompt, "树洞")
         messages.append(assistant_message)
     else:
         ai_prompt = build_multimodal_prompt(prompt, emotion) + _rating_feedback_summary(messages)
@@ -551,6 +559,16 @@ def _apply_treehole_proactive(force: bool = False) -> bool:
 
 def render_treehole_page() -> None:
     _inject_css()
+    render_crisis_alert_if_needed()
+    flip_page = st.query_params.get("treehole_flip")
+    if flip_page:
+        st.query_params.clear()
+        st.session_state.treehole_show_latest_reply = False
+        entry_page = int(st.session_state.get("treehole_entry_page", 0)) + 1
+        st.session_state.treehole_entry_page = entry_page
+        st.session_state.treehole_entry_key = f"treehole_native_entry_{entry_page}"
+        st.rerun()
+
     rating = st.query_params.get("tree_rating")
     if rating:
         try:
@@ -630,6 +648,13 @@ def render_treehole_page() -> None:
             label_visibility="collapsed",
         )
         form_submitted = st.form_submit_button("确定", use_container_width=True)
+        flip_submitted = st.form_submit_button("翻页", use_container_width=True)
+    if flip_submitted:
+        st.session_state.treehole_show_latest_reply = False
+        entry_page = int(st.session_state.get("treehole_entry_page", 0)) + 1
+        st.session_state.treehole_entry_page = entry_page
+        st.session_state.treehole_entry_key = f"treehole_native_entry_{entry_page}"
+        st.rerun()
     if form_submitted:
         _submit_treehole_message(prompt)
 
