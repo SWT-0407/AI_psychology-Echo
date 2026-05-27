@@ -551,6 +551,9 @@ textarea[aria-label="发消息"] {
     padding: 8px 14px 8px;
     box-sizing: border-box;
 }
+.st-key-wx_composer_controls > div {
+    position: relative !important;
+}
 .st-key-wx_composer_controls [data-testid="stHorizontalBlock"] {
     gap: 8px !important;
     align-items: center !important;
@@ -641,11 +644,19 @@ textarea[aria-label="发消息"] {
     color: #b5b5b5 !important;
     font-size: 14px !important;
 }
-.st-key-wx_composer_controls [class*="_send_button"] button {
+.st-key-wx_composer_controls .st-key-companion_send_arrow {
+    position: absolute !important;
+    right: 16px !important;
+    bottom: 14px !important;
+    z-index: 5 !important;
+    width: 56px !important;
+    height: 30px !important;
+}
+.st-key-wx_composer_controls .st-key-companion_send_arrow button {
     width: 56px !important;
     min-width: 56px !important;
-    height: 28px !important;
-    min-height: 28px !important;
+    height: 30px !important;
+    min-height: 30px !important;
     padding: 0 !important;
     border: 0 !important;
     border-radius: 0 !important;
@@ -654,9 +665,9 @@ textarea[aria-label="发消息"] {
     font-size: 27px !important;
     line-height: 1 !important;
 }
-.st-key-wx_composer_controls [class*="_send_button"] button:hover,
-.st-key-wx_composer_controls [class*="_send_button"] button:focus,
-.st-key-wx_composer_controls [class*="_send_button"] button:active {
+.st-key-wx_composer_controls .st-key-companion_send_arrow button:hover,
+.st-key-wx_composer_controls .st-key-companion_send_arrow button:focus,
+.st-key-wx_composer_controls .st-key-companion_send_arrow button:active {
     background: transparent !important;
     color: #111 !important;
     border: 0 !important;
@@ -1704,7 +1715,7 @@ def _render_message_form(selected: Optional[Dict[str, Any]]) -> None:
             key=text_key,
         )
 
-        tool_cols = st.columns([0.32, 0.32, 0.32, 7.52, 1.14])
+        tool_cols = st.columns([0.32, 0.32, 0.32, 8.66])
         with tool_cols[0]:
             if st.button("☺", key=f"{scope}_emoji_toggle", help="发表情"):
                 st.session_state[emoji_key] = not st.session_state.get(emoji_key, False)
@@ -1716,8 +1727,7 @@ def _render_message_form(selected: Optional[Dict[str, Any]]) -> None:
         with tool_cols[2]:
             audio_file = None
             voice_clicked = st.button("🎙", key=f"{scope}_voice_button", help="录音")
-        with tool_cols[4]:
-            submitted = st.button("↗", key=f"{scope}_send_button", use_container_width=True, help="发送")
+        submitted = st.button("↗", key="companion_send_arrow", help="发送")
 
         if voice_clicked:
             with st.spinner("正在聆听..."):

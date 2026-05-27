@@ -124,6 +124,7 @@ def _default_profile() -> Dict[str, Any]:
         },
         "tags": [],
         "risk": {"level": "low", "reasons": [], "updated_at": now},
+        "integrated_assessment": {},
         "events": [],
     }
 
@@ -293,6 +294,12 @@ def update_profile_from_session(
     topics = _find_matches(text, TOPIC_RULES)
     emotions = _find_matches(text, EMOTION_RULES)
     tags = _tags_from_scores(scores, score) + topics + emotions
+    try:
+        from services.psych_assessment import build_integrated_assessment
+
+        integrated_assessment = build_integrated_assessment(scores, messages)
+    except Exception:
+        integrated_assessment = {}
 
     assessment = profile.setdefault("assessment", {})
     if mode == "psytest" and not assessment.get("initial_scores"):
@@ -310,6 +317,13 @@ def update_profile_from_session(
         "level": level,
         "scores": dict(scores or {}),
     }
+    if integrated_assessment:
+        snapshot["integrated_assessment"] = {
+            "overall_index": integrated_assessment.get("overall_index"),
+            "final_level": integrated_assessment.get("final_level"),
+            "functional_level": (integrated_assessment.get("functional_impairment") or {}).get("level"),
+            "risk_level": (integrated_assessment.get("risk_protection_gate") or {}).get("level"),
+        }
     if history and source_id and history[-1].get("source_id") == source_id:
         history[-1] = snapshot
     else:
@@ -326,6 +340,13 @@ def update_profile_from_session(
 
     profile["tags"] = _unique_recent(profile.get("tags", []), tags, limit=14)
     risk = _detect_risk(text, score)
+    if integrated_assessment:
+        profile["integrated_assessment"] = integrated_assessment
+        gate = integrated_assessment.get("risk_protection_gate") or {}
+        if gate.get("level") == "R3":
+            risk = {"level": "high", "reasons": gate.get("risk_factors") or [], "updated_at": _now_iso()}
+        elif gate.get("level") == "R2" and risk.get("level") == "low":
+            risk = {"level": "medium", "reasons": gate.get("risk_factors") or [], "updated_at": _now_iso()}
     if risk["level"] != "low" or profile.get("risk", {}).get("level") != "high":
         profile["risk"] = risk
 
@@ -390,9 +411,14 @@ def get_profile_summary() -> Dict[str, Any]:
     behavior = profile.get("behavior") or {}
     companion = profile.get("companion") or {}
     risk = profile.get("risk") or {}
+    integrated = profile.get("integrated_assessment") or {}
     return {
         "level": assessment.get("level") or "暂无评估",
         "overall_score": assessment.get("overall_score"),
+        "integrated_level": integrated.get("final_level", ""),
+        "concern_index": integrated.get("overall_index"),
+        "functional_level": (integrated.get("functional_impairment") or {}).get("level", ""),
+        "safety_gate_level": (integrated.get("risk_protection_gate") or {}).get("level", ""),
         "latest_emotion": emotion.get("latest_label") or "暂无",
         "recent_topics": list(emotion.get("recent_topics") or [])[-4:],
         "tags": list(profile.get("tags") or [])[-6:],
@@ -407,6 +433,7 @@ def build_profile_context(max_chars: int = 240) -> str:
     summary = get_profile_summary()
     parts = [
         f"综合状态：{summary['level']}",
+        f"综合画像：{summary.get('integrated_level') or '暂无'}",
         f"最近情绪：{summary['latest_emotion']}",
         f"关注主题：{'、'.join(summary['recent_topics']) or '暂无'}",
         f"画像标签：{'、'.join(summary['tags']) or '暂无'}",

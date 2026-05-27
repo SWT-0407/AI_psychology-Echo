@@ -53,5 +53,17 @@
     "proactive": true,
     "proactive_channel": "treehole",
     "proactive_reason": "force"
+  },
+  {
+    "role": "user",
+    "content": "你好",
+    "time": "2026-05-27T10:30:50",
+    "safety_level": "none"
+  },
+  {
+    "role": "assistant",
+    "content": "你好呀。我在这儿呢。  \n不用急着找话题，你可以先随便待会儿，或者想到什么了再慢慢说给我听。",
+    "time": "2026-05-27T10:30:53",
+    "model_source": "deepseek"
   }
 ]

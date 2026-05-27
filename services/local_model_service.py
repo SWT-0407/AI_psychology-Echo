@@ -10,8 +10,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TextStreamer
 from peft import PeftModel
 
 # 配置
-BASE_MODEL = "Qwen/Qwen2.5-7B-Instruct"
-LORA_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "qwen_psychology_finetuned")
+BASE_MODEL = os.getenv("LOCAL_BASE_MODEL") or os.getenv("QWEN_BASE_MODEL") or "Qwen/Qwen2.5-7B-Instruct"
+_DEFAULT_LORA_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "qwen_psychology_finetuned")
+LORA_PATH = os.getenv("LOCAL_LORA_PATH") or os.getenv("QWEN_LORA_PATH") or _DEFAULT_LORA_PATH
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # 全局单例

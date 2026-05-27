@@ -25,6 +25,8 @@ copy .env.example .env
 
 - `DEEPSEEK_API_KEY`：语言模型能力，可留空使用本地规则演示。
 - `QWEN_API_KEY`：语音识别、视觉表情分析、TTS 等多模态能力。
+- `TREEHOLE_REPLY_PROVIDER`：树洞回复来源，`auto` 会优先调用 DeepSeek；可设为 `local` 使用本地微调模型。
+- `LOCAL_LORA_PATH`：本地 LoRA 微调模型目录，默认 `./qwen_psychology_finetuned`。
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY`：云端同步，可留空使用本地模式。
 - `ECHO_CRISIS_RESOURCE_TEXT`：高风险对话中的前台建议文案；系统不会后台联系任何机构或个人。
 

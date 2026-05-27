@@ -1,10 +1,10 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
 DIMENSIONS = {
     "x1": "情绪状态",
-    "x2": "焦虑控制力",
+    "x2": "焦虑与压力",
     "x3": "生理状态",
     "x4": "行为与动力",
     "x5": "社交与支持",
@@ -21,6 +21,73 @@ MOTIVATION_WORDS = ["不想动", "拖延", "摆烂", "努力", "完成", "计划
 CRISIS_WORDS = ["自杀", "自残", "不想活", "死了算了", "结束生命", "伤害自己", "活不下去"]
 DISTRESS_WORDS = ["崩溃", "撑不住", "绝望", "痛苦", "麻木", "想哭", "没人懂", "熬不住"]
 
+DIMENSION_BASELINES = {
+    "x1": 6.5,
+    "x2": 7.0,
+    "x3": 7.0,
+    "x4": 6.5,
+    "x5": 5.8,
+    "x6": 6.3,
+}
+
+DIMENSION_SIGNAL_RULES: Dict[str, List[Tuple[Sequence[str], float]]] = {
+    "x1": [
+        (["开心", "高兴", "愉快", "平静", "踏实", "满足", "舒服", "还好", "不错"], 0.55),
+        (["非常开心", "特别开心", "很开心", "特别顺利"], 0.9),
+        (["难过", "低落", "委屈", "失落", "沮丧", "想哭", "麻木", "空空的"], -0.85),
+        (["烦", "烦躁", "易怒", "火大", "生气", "讨厌"], -0.55),
+        (["崩溃", "撑不住", "熬不住"], -1.15),
+    ],
+    "x2": [
+        (["轻松", "放松", "安心", "稳定", "不担心"], 0.5),
+        (["焦虑", "紧张", "担心", "害怕", "慌", "心慌", "压力"], -0.85),
+        (["ddl", "DDL", "考试", "绩点", "面试", "答辩", "作业"], -0.45),
+        (["控制不住", "停不下来", "喘不过气", "惊恐"], -1.15),
+    ],
+    "x3": [
+        (["睡得好", "睡眠正常", "吃得下", "胃口还行", "有精力", "精神不错"], 0.65),
+        (["失眠", "睡不着", "早醒", "熬夜", "做噩梦", "睡眠差"], -0.9),
+        (["累", "疲惫", "没力气", "困", "精疲力竭"], -0.7),
+        (["吃不下", "暴食", "胃疼", "胃痛", "头疼", "胸闷", "心慌"], -0.65),
+    ],
+    "x4": [
+        (["努力", "完成", "计划", "学习", "开始做", "去做", "坚持", "运动"], 0.45),
+        (["不想动", "动不了", "开始不了", "起不来"], -0.85),
+        (["拖延", "逃避", "回避", "摆烂"], -0.75),
+        (["没兴趣", "没意思", "不想做", "提不起劲", "学不进去", "做不完", "完不成"], -0.7),
+    ],
+    "x5": [
+        (["朋友", "室友", "家人", "老师", "同学", "咨询师", "辅导员", "陪我", "倾诉", "有人听"], 0.75),
+        (["孤独", "一个人", "没人懂", "没人理解", "没人陪"], -0.85),
+        (["不想麻烦", "不敢说", "没人可以说", "不知道找谁"], -0.8),
+        (["吵架", "冷战", "冲突", "分手", "被孤立"], -0.7),
+    ],
+    "x6": [
+        (["期待", "希望", "目标", "方向", "意义", "想完成", "值得", "清楚"], 0.55),
+        (["迷茫", "没意义", "没有意义", "空", "不知道为什么"], -0.75),
+        (["自责", "没用", "废物", "失败", "都是我的错", "不值得"], -0.85),
+        (["绝望", "无助", "看不到希望", "没有希望", "活不下去", "想消失"], -1.15),
+    ],
+}
+
+DIMENSION_COVERAGE_TERMS = {
+    "x1": ["心情", "情绪", "开心", "难过", "低落", "烦", "哭", "麻木", "崩溃"],
+    "x2": ["焦虑", "压力", "紧张", "担心", "害怕", "考试", "ddl", "DDL", "心慌"],
+    "x3": ["睡", "失眠", "吃", "胃", "头疼", "胸闷", "累", "疲惫", "身体"],
+    "x4": ["学习", "行动", "拖延", "逃避", "不想动", "摆烂", "完成", "计划"],
+    "x5": ["朋友", "室友", "家人", "同学", "老师", "孤独", "一个人", "倾诉", "关系"],
+    "x6": ["意义", "目标", "希望", "迷茫", "自责", "未来", "期待", "绝望", "没用"],
+}
+
+DIMENSION_FOLLOWUP_QUESTIONS = {
+    "x1": "最近两周里，最常冒出来的情绪是什么？它一般会停留多久？",
+    "x2": "现在最让你放不下的压力源是哪一件？它会不会影响睡眠或专注？",
+    "x3": "这段时间睡眠、食欲、精力或身体不适有没有明显变化？",
+    "x4": "有没有原本能做的事，现在明显拖着、不想做，或者启动不了？",
+    "x5": "状态不好的时候，有没有一个你愿意联系的人？你觉得自己被理解吗？",
+    "x6": "你最近怎么看待自己和接下来这段时间？还有一点点期待或目标吗？",
+}
+
 
 def _clamp(value: float) -> int:
     return max(0, min(10, round(value)))
@@ -30,23 +97,66 @@ def _count(text: str, words: List[str]) -> int:
     return sum(text.count(word) for word in words)
 
 
-def score_messages(messages: List[Dict[str, Any]]) -> Dict[str, int]:
-    user_text = " ".join(str(m.get("content", "")) for m in messages if m.get("role") == "user")
-    pos = _count(user_text, POSITIVE_WORDS)
-    neg = _count(user_text, NEGATIVE_WORDS)
-    body = _count(user_text, BODY_WORDS)
-    support = _count(user_text, SUPPORT_WORDS)
-    motivation = _count(user_text, MOTIVATION_WORDS)
+def _user_texts(messages: List[Dict[str, Any]]) -> List[str]:
+    return [
+        str(message.get("content", "")).strip()
+        for message in messages
+        if message.get("role") == "user" and str(message.get("content", "")).strip()
+    ]
 
-    base = 6.5 + pos * 0.6 - neg * 0.55
+
+def _weighted_count(texts: List[str], words: Sequence[str]) -> float:
+    if not texts:
+        return 0.0
+    total = 0.0
+    for index, text in enumerate(texts):
+        weight = 0.7 + 0.3 * ((index + 1) / len(texts))
+        total += _count(text, list(words)) * weight
+    return total
+
+
+def _dimension_delta(texts: List[str], key: str) -> float:
+    delta = 0.0
+    for words, impact in DIMENSION_SIGNAL_RULES.get(key, []):
+        delta += _weighted_count(texts, words) * impact
+    return delta
+
+
+def _dimension_coverage(messages: List[Dict[str, Any]]) -> Dict[str, bool]:
+    text = " ".join(_user_texts(messages))
     return {
-        "x1": _clamp(base),
-        "x2": _clamp(7.0 + pos * 0.3 - _count(user_text, ["焦虑", "害怕", "心慌", "崩溃"]) * 0.9),
-        "x3": _clamp(7.0 - body * 0.8 + pos * 0.2),
-        "x4": _clamp(6.5 + _count(user_text, ["努力", "完成", "计划", "学习"]) * 0.5 - _count(user_text, ["不想动", "拖延", "摆烂"]) * 0.7),
-        "x5": _clamp(5.8 + support * 0.75 - _count(user_text, ["孤独", "没人", "一个人"]) * 0.7),
-        "x6": _clamp(6.3 + motivation * 0.25 + pos * 0.25 - _count(user_text, ["没意义", "空", "迷茫"]) * 0.8),
+        key: any(term in text for term in terms)
+        for key, terms in DIMENSION_COVERAGE_TERMS.items()
     }
+
+
+def score_messages(messages: List[Dict[str, Any]]) -> Dict[str, int]:
+    texts = _user_texts(messages)
+    all_text = " ".join(texts)
+    general_positive = _weighted_count(texts, POSITIVE_WORDS)
+    general_negative = _weighted_count(texts, NEGATIVE_WORDS)
+    crisis_signal = _weighted_count(texts, CRISIS_WORDS)
+    distress_signal = _weighted_count(texts, DISTRESS_WORDS)
+
+    scores: Dict[str, int] = {}
+    for key in DIMENSION_KEYS:
+        value = DIMENSION_BASELINES[key] + _dimension_delta(texts, key)
+        if key in {"x1", "x6"}:
+            value += general_positive * 0.12 - general_negative * 0.08
+        if key in {"x1", "x2", "x6"}:
+            value -= distress_signal * 0.25
+        if key in {"x1", "x6"}:
+            value -= crisis_signal * 1.4
+        scores[key] = _clamp(value)
+
+    if "没人" in all_text and not any(term in all_text for term in SUPPORT_WORDS):
+        scores["x5"] = min(scores["x5"], 4)
+    if any(term in all_text for term in ["整晚", "连续失眠", "几天没睡"]):
+        scores["x3"] = min(scores["x3"], 3)
+    if any(term in all_text for term in ["学不进去", "做不完", "什么都做不了"]):
+        scores["x4"] = min(scores["x4"], 4)
+
+    return scores
 
 
 def overall_score(scores: Dict[str, int]) -> float:
@@ -514,6 +624,10 @@ def generate_reply(
         profile = _profile_summary()
         profile_topics = profile.get("recent_topics") or []
         profile_hint = f"我也会把你最近反复出现的「{profile_topics[-1]}」记在画像里，后面陪你时会更留意。" if profile_topics else ""
+        plain_text = user_text.split("[多模态补充]", 1)[0].strip()
+        plain_text = plain_text.split("[过往日记回复评分反馈", 1)[0].strip()
+        if plain_text in {"你好", "嗨", "hi", "Hi", "hello", "Hello", "在吗", "在吗？"}:
+            return "你好，我在。你可以慢慢写，今天想从哪里开始说都可以。"
         if profile.get("risk_level") == "high":
             return "我听见你现在承受的痛苦很重。先别一个人扛着，如果你有伤害自己的冲动，请马上联系身边可信任的人，或拨打当地紧急电话/心理援助热线。你也可以先回我一个字：现在安全吗？"
         if very_low:
@@ -523,35 +637,50 @@ def generate_reply(
         return f"你说得很清楚，我能感觉到你在认真整理今天的心情。{profile_hint}这个树洞会先接住你，不急着评价。你愿意再说说，这件事后来给你留下了什么感觉吗？"
 
     user_turns = sum(1 for msg in messages if msg.get("role") == "user")
+    try:
+        from services.psych_assessment import build_integrated_assessment
+
+        assessment = build_integrated_assessment(scores, messages)
+        next_questions = (assessment.get("interview_guidance") or {}).get("next_questions") or []
+    except Exception:
+        next_questions = []
+
     if user_turns <= 1:
-        return "我读到了今天的开头。为了更准确地做六维评估，我想再了解一点：这件事对你的情绪、身体状态和行动力分别有什么影响？"
+        question = next_questions[0] if next_questions else "这件事对你的情绪、身体状态和行动力分别有什么影响？"
+        return f"我读到了今天的开头。为了更准确地做六维评估，我想再了解一点：{question}"
     if user_turns <= 3:
-        return "谢谢你继续补充。你的描述里已经能看到情绪、压力和支持系统的线索了。再问一个小问题：当这些感受出现时，你通常会怎么安抚自己，或者会找谁说一说？"
+        question = next_questions[0] if next_questions else "当这些感受出现时，你通常会怎么安抚自己，或者会找谁说一说？"
+        return f"谢谢你继续补充。你的描述里已经能看到情绪、压力和支持系统的线索了。再问一个小问题：{question}"
     return "信息已经比较完整了。我可以继续陪你聊，也可以根据目前的内容生成一份六维心理评估报告。"
 
 
 def make_report(scores: Dict[str, int], messages: List[Dict[str, Any]]) -> str:
-    score = overall_score(scores)
-    level = level_name(scores)
-    lines = [
-        f"### 综合结果：{score} / 100（{level}）",
-        "",
-        "这份报告基于你在对话中表达的情绪、身体感受、压力线索、行动状态、支持系统和意义感做出轻量评估。",
-        "",
-    ]
-    for key, name in DIMENSIONS.items():
-        value = scores.get(key, 5)
-        if value >= 8:
-            comment = "表现较稳，是你现在可以依靠的资源。"
-        elif value >= 5:
-            comment = "有一些波动，但仍然保留着调节空间。"
-        else:
-            comment = "需要更多照顾，建议降低自我要求并寻求支持。"
-        lines.append(f"- **{name}**：{value}/10，{comment}")
+    try:
+        from services.psych_assessment import build_integrated_assessment, format_assessment_markdown
 
-    lines.extend([
-        "",
-        "#### 温柔建议",
-        "先挑一件最小、最容易完成的事做完，例如喝水、洗脸、出门走三分钟。等身体先回到比较安全的位置，再处理复杂问题。",
-    ])
-    return "\n".join(lines)
+        return format_assessment_markdown(build_integrated_assessment(scores, messages))
+    except Exception:
+        score = overall_score(scores)
+        level = level_name(scores)
+        lines = [
+            f"### 综合结果：{score} / 100（{level}）",
+            "",
+            "这份报告基于你在对话中表达的情绪、身体感受、压力线索、行动状态、支持系统和意义感做出轻量评估。",
+            "",
+        ]
+        for key, name in DIMENSIONS.items():
+            value = scores.get(key, 5)
+            if value >= 8:
+                comment = "表现较稳，是你现在可以依靠的资源。"
+            elif value >= 5:
+                comment = "有一些波动，但仍然保留着调节空间。"
+            else:
+                comment = "需要更多照顾，建议降低自我要求并寻求支持。"
+            lines.append(f"- **{name}**：{value}/10，{comment}")
+
+        lines.extend([
+            "",
+            "#### 温柔建议",
+            "先挑一件最小、最容易完成的事做完，例如喝水、洗脸、出门走三分钟。等身体先回到比较安全的位置，再处理复杂问题。",
+        ])
+        return "\n".join(lines)

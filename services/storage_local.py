@@ -245,6 +245,12 @@ def auto_save_current_session():
 
     # 获取建议（从最后的 AI 回复中提取）
     ai_suggestion = _extract_last_ai_reply(display_messages)
+    try:
+        from services.psych_assessment import build_integrated_assessment
+
+        integrated_assessment = build_integrated_assessment(scores, display_messages)
+    except Exception:
+        integrated_assessment = {}
 
     record_data = {
         "session_id": session_id,
@@ -260,6 +266,7 @@ def auto_save_current_session():
         "summary": summary,
         "ai_suggestion": ai_suggestion,
         "ai_direction": ai_direction,
+        "integrated_assessment": integrated_assessment,
     }
 
     save_complete_session(session_id, record_data)

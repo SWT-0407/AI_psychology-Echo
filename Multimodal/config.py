@@ -72,7 +72,7 @@ FACE_EMOTION_DIMENSIONS = {
     "anxiety": {
         "label": "焦虑度",
         "desc": "0=完全放松无焦虑, 0.3=轻微不安, 0.5=中度焦虑, 0.7=明显焦虑, 1.0=极度惊恐/恐慌",
-        "mapping": "x2",       # → 焦虑控制力（反向）
+        "mapping": "x2",       # → 焦虑与压力（反向，焦虑越低稳定分越高）
         "min": 0.0, "max": 1.0
     },
     "fatigue": {
@@ -129,7 +129,7 @@ def face_vector_to_scores(face_vector):
         raw = float(val)
 
         # 反向映射的维度（值越低表示越健康 → 得分越高）
-        if target in ("x2", "x3"):   # 焦虑控制力、生理状态是反向的
+        if target in ("x2", "x3"):   # 焦虑与压力、生理状态是反向的稳定分
             score = round((1.0 - raw) * 10)
         else:
             score = round(raw * 10)
@@ -149,7 +149,7 @@ def face_vector_to_scores(face_vector):
 # ==========================================
 DIMENSIONS = {
     "x1": "情绪状态",
-    "x2": "焦虑控制力",
+    "x2": "焦虑与压力",
     "x3": "生理状态",
     "x4": "行为与动力",
     "x5": "社交与支持",

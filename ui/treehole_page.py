@@ -10,6 +10,11 @@ from services.app_storage import make_message, message_time, save_history_record
 from services.local_ai import generate_reply, score_messages
 from services.proactive_engine import maybe_add_care_proactive
 from services.safety import assess_message_safety, attach_safety_metadata, make_safety_reply
+from services.treehole_ai_service import (
+    TreeholeModelError,
+    generate_treehole_model_reply,
+    model_source_label,
+)
 from ui.crisis_alert import queue_crisis_alert, render_crisis_alert_if_needed
 from ui.multimodal_controls import build_multimodal_prompt, render_multimodal_controls
 
@@ -333,6 +338,13 @@ def _rating_feedback_summary(messages) -> str:
     )
 
 
+def _latest_model_source(messages) -> str:
+    for msg in reversed(messages):
+        if msg.get("role") == "assistant":
+            return str(msg.get("model_source") or "")
+    return ""
+
+
 def _save_treehole_history(messages, scores, title: str) -> None:
     record_id = save_history_record(
         "treehole",
@@ -536,7 +548,19 @@ def _submit_treehole_message(prompt: str, emotion=None) -> None:
         messages.append(assistant_message)
     else:
         ai_prompt = build_multimodal_prompt(prompt, emotion) + _rating_feedback_summary(messages)
-        messages.append(make_message("assistant", generate_reply("treehole", ai_prompt, messages, scores)))
+        try:
+            reply, model_source = generate_treehole_model_reply(ai_prompt, messages, scores)
+            st.session_state.treehole_model_notice = ""
+        except TreeholeModelError as exc:
+            reply = generate_reply("treehole", ai_prompt, messages, scores)
+            model_source = "local_template"
+            st.session_state.treehole_model_notice = (
+                "真实模型调用失败，已临时使用本地规则兜底。"
+                f"原因：{exc}"
+            )
+        assistant_message = make_message("assistant", reply)
+        assistant_message["model_source"] = model_source
+        messages.append(assistant_message)
     st.session_state.treehole_messages = messages
     st.session_state.treehole_show_latest_reply = True
     save_treehole_messages(messages)
@@ -611,6 +635,9 @@ def render_treehole_page() -> None:
         if _apply_treehole_proactive(force=True):
             st.rerun()
         st.toast("还没有足够画像时，先写下一点心情会更准。")
+    model_notice = st.session_state.get("treehole_model_notice", "")
+    if model_notice:
+        st.warning(model_notice)
 
     messages = st.session_state.get("treehole_messages", [])
     bg_url = _treehole_bg_data_url()
@@ -659,6 +686,9 @@ def render_treehole_page() -> None:
         _submit_treehole_message(prompt)
 
     latest_assistant_idx = _latest_assistant_index(messages)
+    latest_source = _latest_model_source(messages)
+    if latest_source:
+        st.caption(f"本次回复来源：{model_source_label(latest_source)}")
     if latest_assistant_idx is not None:
         _message_rating(latest_assistant_idx, messages[latest_assistant_idx])
 

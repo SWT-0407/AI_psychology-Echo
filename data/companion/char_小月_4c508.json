@@ -65,5 +65,24 @@
     "proactive": true,
     "proactive_channel": "companion",
     "proactive_reason": "force"
+  },
+  {
+    "role": "assistant",
+    "content": "忙完了吗，聊两句？",
+    "time": "2026-05-27T10:09:21",
+    "proactive": true,
+    "proactive_channel": "companion",
+    "proactive_reason": "force"
+  },
+  {
+    "role": "user",
+    "content": "哦你好你好你好",
+    "time": "2026-05-27T10:09:38",
+    "safety_level": "none"
+  },
+  {
+    "role": "assistant",
+    "content": "我会先盯一下那些容易被你忽略的小事。 你可以继续讲细一点。",
+    "time": "2026-05-27T10:09:39"
   }
 ]

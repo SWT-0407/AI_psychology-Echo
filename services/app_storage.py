@@ -201,6 +201,12 @@ def build_session_payload(
         user_profile_summary = get_profile_summary()
     except Exception:
         user_profile_summary = {}
+    try:
+        from services.psych_assessment import build_integrated_assessment
+
+        integrated_assessment = build_integrated_assessment(scores, messages)
+    except Exception:
+        integrated_assessment = {}
 
     payload = {
         "session_id": session_id,
@@ -222,6 +228,7 @@ def build_session_payload(
         "diary_profile": profile,
         "diary_moods": moods,
         "user_profile_summary": user_profile_summary,
+        "integrated_assessment": integrated_assessment,
         "storage_version": "diary_v2_original_schema",
     }
     payload.update(meta)

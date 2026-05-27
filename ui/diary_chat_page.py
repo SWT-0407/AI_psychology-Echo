@@ -1661,62 +1661,17 @@ def _apply_psy_proactive(messages: List[Dict[str, Any]], scores: Dict[str, int],
 
 
 def render_live_chat() -> None:
-    if st.query_params.get("diary_flip"):
-        st.session_state.psy_visible_exchange = {"user": "", "assistant": ""}
-        st.session_state.psy_diary_text = ""
-        st.session_state.show_psy_report = False
-        try:
-            del st.query_params["diary_flip"]
-        except Exception:
-            st.query_params.clear()
-        st.rerun()
-
     messages = st.session_state.get("psy_messages", [])
     scores = st.session_state.get("psy_scores") or score_messages(messages)
     if _apply_psy_proactive(messages, scores):
         messages = st.session_state.get("psy_messages", [])
         scores = st.session_state.get("psy_scores") or score_messages(messages)
-    exchange = st.session_state.get("psy_visible_exchange")
-    if not isinstance(exchange, dict):
-        exchange = _latest_exchange(messages)
-    assistant_text = str(exchange.get("assistant") or "")
-    reply_html = escape(assistant_text).replace("\n", "<br/>") or '<span class="tpl-diary-empty">日记会在这里回应你。</span>'
-    now = datetime.now()
 
-    chat_bg = _template_data_url("chat")
-    if chat_bg:
-        st.markdown(
-            f"""
-            <style>
-            div[data-testid="stForm"]:has(#diary-entry-form-anchor) {{
-                background-image: url('{chat_bg}') !important;
-            }}
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
+    _chat_paper(messages, "双人聊天")
 
-    with st.form("diary_entry_form", clear_on_submit=False):
-        st.markdown('<span id="diary-entry-form-anchor"></span>', unsafe_allow_html=True)
-        st.markdown(
-            f"""
-            <div class="tpl-text" style="left:8%;top:9%;width:42%;">
-                {now.strftime("%Y.%m.%d")} · {_weekday_en(now)} · {now.strftime("%H:%M")}
-            </div>
-            <div class="diary-right-reply">{reply_html}</div>
-            <a class="diary-flip-link" href="?diary_flip=1">翻页</a>
-            """,
-            unsafe_allow_html=True,
-        )
-        prompt = st.text_area(
-            "写在今天的日记里",
-            placeholder="把想说的话写在这里...",
-            label_visibility="collapsed",
-            key="psy_diary_text",
-        )
-        submitted = st.form_submit_button("确定", use_container_width=True)
+    prompt = st.chat_input("把想说的话写在这里...", key="psy_live_chat_input")
 
-    if submitted and prompt.strip():
+    if prompt and prompt.strip():
         user_text = prompt.strip()
         assessment = assess_message_safety(user_text)
         messages.append(attach_safety_metadata(make_message("user", user_text), assessment))
@@ -1738,7 +1693,7 @@ def render_live_chat() -> None:
         st.session_state.psy_record_id = record_id
         st.session_state.psy_messages = messages
         st.session_state.psy_scores = scores
-        st.session_state.psy_diary_text = user_text
+        st.session_state.psy_diary_text = ""
         st.session_state.psy_visible_exchange = {"user": user_text, "assistant": reply}
         st.rerun()
 

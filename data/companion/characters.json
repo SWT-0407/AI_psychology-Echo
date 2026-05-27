@@ -74,22 +74,22 @@
         "边界是否公开且稳定",
         "用户在这段关系里最被牵动的感受"
       ],
-      "updated_at": "2026-05-27T08:12:26"
+      "updated_at": "2026-05-27T10:09:39"
     },
     "pinned": false,
-    "last_active": "2026-05-27T08:15:13",
+    "last_active": "2026-05-27T10:09:39",
     "unread": 0,
-    "intimacy": 3,
+    "intimacy": 4,
     "relationship_stage": "初识",
     "relationship": {
       "stage": "初识",
-      "intimacy": 3,
-      "updated_at": "2026-05-27T08:12:26"
+      "intimacy": 4,
+      "updated_at": "2026-05-27T10:09:39"
     },
     "emotion_state": {
       "label": "平静",
       "source": "text",
-      "updated_at": "2026-05-27T08:12:26"
+      "updated_at": "2026-05-27T10:09:39"
     },
     "emotional_residue": {},
     "memory": [],
@@ -98,8 +98,8 @@
       "avoid_ai_tone": true
     },
     "created_at": "2026-05-26T12:24:27",
-    "updated_at": "2026-05-27T08:15:13",
+    "updated_at": "2026-05-27T10:09:39",
     "user_id": "local_user",
-    "last_reply": "先不急着总结。你说这件事的时候，心里最明显的感觉是什么？"
+    "last_reply": "我会先盯一下那些容易被你忽略的小事。 你可以继续讲细一点。"
   }
 ]
