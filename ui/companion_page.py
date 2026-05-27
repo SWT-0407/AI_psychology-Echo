@@ -5,7 +5,7 @@ from datetime import datetime
 from html import escape
 from textwrap import dedent
 from typing import Any, Dict, List, Optional
-from urllib.parse import quote
+from urllib.parse import urlencode
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -138,10 +138,45 @@ div[data-testid="stDialog"] .stForm {
     border: 0;
     padding: 0;
 }
-.wx-profile-note {
-    color: #737373;
+.wx-form-notes {
+    margin: 2px 0 14px;
+}
+.wx-profile-note,
+.wx-required-note {
+    color: #7a7f8a;
     font-size: 14px;
-    margin: -4px 0 14px;
+    line-height: 1.45;
+    margin: 0;
+}
+.wx-required-note {
+    margin-top: 2px;
+}
+.st-key-required_char_name input,
+.st-key-required_char_occupation input,
+.st-key-required_char_daily_rhythm textarea,
+.st-key-required_char_emotional_pattern textarea,
+.st-key-required_char_core_need input,
+.st-key-required_char_core_fear input,
+.st-key-required_char_affection_style input,
+.st-key-required_char_recent_state textarea,
+.st-key-required_char_impression textarea {
+    border-color: #f29ab8 !important;
+    background: #fff6fa !important;
+    box-shadow: 0 0 0 1px rgba(242, 154, 184, .24) !important;
+}
+.st-key-required_char_name label p::after,
+.st-key-required_char_occupation label p::after,
+.st-key-required_char_daily_rhythm label p::after,
+.st-key-required_char_emotional_pattern label p::after,
+.st-key-required_char_core_need label p::after,
+.st-key-required_char_core_fear label p::after,
+.st-key-required_char_affection_style label p::after,
+.st-key-required_char_recent_state label p::after,
+.st-key-required_char_impression label p::after {
+    content: "  必填";
+    color: #d64b7f;
+    font-size: 12px;
+    font-weight: 600;
 }
 .wx-list {
     height: calc(100vh - 144px);
@@ -156,6 +191,7 @@ div[data-testid="stDialog"] .stForm {
     gap: 14px;
     align-items: center;
     height: 98px;
+    max-height: 98px;
     padding: 0 18px 0 14px;
     box-sizing: border-box;
     text-decoration: none;
@@ -163,6 +199,7 @@ div[data-testid="stDialog"] .stForm {
     background: #e9e9eb;
     border-bottom: 1px solid #dddddf;
     cursor: default;
+    overflow: hidden;
 }
 .wx-contact:hover { background: #dedfe2; }
 .wx-contact.active {
@@ -189,7 +226,10 @@ div[data-testid="stDialog"] .stForm {
     font-weight: 800;
 }
 .wx-contact.active .wx-avatar { box-shadow: none; }
-.wx-contact-main { min-width: 0; }
+.wx-contact-main {
+    min-width: 0;
+    overflow: hidden;
+}
 .wx-contact-name {
     font-size: 20px;
     line-height: 1.2;
@@ -482,17 +522,6 @@ textarea[aria-label="发消息"] {
     justify-content: center;
     font-size: 28px;
 }
-.wx-rail-icon {
-    width: 44px;
-    height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #696969;
-    font-size: 27px;
-}
-.wx-rail-icon.active { color: #07c160; }
-.wx-rail-spacer { flex: 1; }
 .wx-conv-panel {
     min-width: 0;
     height: 100%;
@@ -724,7 +753,10 @@ textarea[aria-label="发消息"] {
 }
 .wx-contact {
     width: 332px !important;
+    height: 98px !important;
+    max-height: 98px !important;
     left: 0 !important;
+    overflow: hidden !important;
 }
 .st-key-toggle_add_contact,
 .st-key-simulate_unread,
@@ -784,6 +816,13 @@ def _inject_css() -> None:
     st.markdown(COMPANION_CSS, unsafe_allow_html=True)
 
 
+def _render_raw_html(html: str) -> None:
+    if hasattr(st, "html"):
+        st.html(html)
+    else:
+        st.markdown(html, unsafe_allow_html=True)
+
+
 def _query_selected_id() -> Optional[str]:
     try:
         value = st.query_params.get("companion_char")
@@ -792,6 +831,31 @@ def _query_selected_id() -> Optional[str]:
         return value
     except Exception:
         return None
+
+
+def _companion_query_params(selected_id: Optional[str] = None) -> Dict[str, str]:
+    params: Dict[str, str] = {"_app_page": "companion"}
+    try:
+        local_mode = st.query_params.get("_local_mode")
+        if isinstance(local_mode, list):
+            local_mode = local_mode[0] if local_mode else ""
+        if local_mode or st.session_state.get("skipped_login"):
+            params["_local_mode"] = str(local_mode or "1")
+    except Exception:
+        if st.session_state.get("skipped_login"):
+            params["_local_mode"] = "1"
+    if selected_id:
+        params["companion_char"] = str(selected_id)
+    return params
+
+
+def _set_companion_query(selected_id: Optional[str]) -> None:
+    try:
+        st.query_params.clear()
+        for key, value in _companion_query_params(selected_id).items():
+            st.query_params[key] = value
+    except Exception:
+        pass
 
 
 def _fmt_time(raw: str) -> str:
@@ -912,7 +976,7 @@ def _handle_query_selection(characters: List[Dict[str, Any]]) -> Optional[Dict[s
 
 
 def _contact_href(char_id: str) -> str:
-    return f"?companion_char={quote(str(char_id))}"
+    return "?" + urlencode(_companion_query_params(str(char_id)))
 
 
 def _contact_html(char: Dict[str, Any], active: bool, messages: List[Dict[str, Any]]) -> str:
@@ -921,32 +985,29 @@ def _contact_html(char: Dict[str, Any], active: bool, messages: List[Dict[str, A
     active_class = " active" if active else ""
     pin = "📌 " if char.get("pinned") else ""
     muted = '<span class="wx-muted">⌁</span>' if not active else ""
-    return dedent(f"""
-    <a class="wx-contact{active_class}" href="{_contact_href(char.get("id", ""))}">
-        <div class="wx-avatar">{escape(char.get("emoji", "😊"))}</div>
-        <div class="wx-contact-main">
-            <div class="wx-contact-name">{pin}{escape(char.get("name", "新朋友"))}</div>
-            <div class="wx-contact-preview">{escape(_last_message(messages))}</div>
-        </div>
-        <div class="wx-contact-time">{escape(_last_time(messages))}</div>
-        {unread_html}
-        {muted}
-    </a>
-    """).strip()
+    href = escape(_contact_href(str(char.get("id", ""))), quote=True)
+    return (
+        f'<a class="wx-contact{active_class}" href="{href}">'
+        f'<div class="wx-avatar">{escape(str(char.get("emoji") or "😊"))}</div>'
+        f'<div class="wx-contact-main">'
+        f'<div class="wx-contact-name">{pin}{escape(str(char.get("name") or "新朋友"))}</div>'
+        f'<div class="wx-contact-preview">{escape(_last_message(messages))}</div>'
+        f'</div><div class="wx-contact-time">{escape(_last_time(messages))}</div>'
+        f'{unread_html}{muted}</a>'
+    )
 
 
 def _file_helper_row(active: bool) -> str:
     active_class = " active" if active else ""
-    return dedent(f"""
-    <a class="wx-contact{active_class}" href="?companion_file=1">
-        <div class="wx-avatar file">↪</div>
-        <div class="wx-contact-main">
-            <div class="wx-contact-name">文件传输助手</div>
-            <div class="wx-contact-preview">这里是你的 AI 角色聊天区</div>
-        </div>
-        <div class="wx-contact-time">{datetime.now().strftime("%H:%M")}</div>
-    </a>
-    """).strip()
+    return (
+        f'<a class="wx-contact{active_class}" href="?companion_file=1">'
+        f'<div class="wx-avatar file">↪</div>'
+        f'<div class="wx-contact-main">'
+        f'<div class="wx-contact-name">文件传输助手</div>'
+        f'<div class="wx-contact-preview">这里是你的 AI 角色聊天区</div>'
+        f'</div><div class="wx-contact-time">{datetime.now().strftime("%H:%M")}</div>'
+        f'</a>'
+    )
 
 
 def _render_add_contact(characters: List[Dict[str, Any]]) -> None:
@@ -1041,16 +1102,25 @@ def _render_add_contact(characters: List[Dict[str, Any]]) -> None:
         char["answer_model"] = build_answer_model(char)
         _save_character(char)
         st.session_state.selected_character_id = char["id"]
+        _set_companion_query(char["id"])
         st.session_state.show_add_contact = False
         _mark_read(char)
         st.rerun()
 
     def render_form() -> None:
-        st.markdown('<div class="wx-profile-note">为这个人建一张关系档案，空着也可以之后再补。</div>', unsafe_allow_html=True)
+        st.markdown(
+            dedent("""
+            <div class="wx-form-notes">
+                <div class="wx-profile-note">为这个人建一张关系档案，粉色输入框是生成真人感角色需要的核心信息。</div>
+                <div class="wx-required-note">必填项会影响角色的称呼、生活状态、说话指纹和情绪逻辑。</div>
+            </div>
+            """).strip(),
+            unsafe_allow_html=True,
+        )
         with st.form("add_contact_form", clear_on_submit=False):
             c1, c2, c3 = st.columns([2, 1, 1])
             with c1:
-                name = st.text_input("昵称", placeholder="例如：小月")
+                name = st.text_input("昵称", placeholder="例如：小月", key="required_char_name")
             with c2:
                 gender = st.selectbox("性别", GENDER_OPTIONS)
             with c3:
@@ -1058,13 +1128,14 @@ def _render_add_contact(characters: List[Dict[str, Any]]) -> None:
 
             c_profile1, c_profile2 = st.columns([1, 1])
             with c_profile1:
-                occupation = st.text_input("职业/身份", placeholder="例如：设计师、研究生、咖啡店店员")
+                occupation = st.text_input("职业/身份", placeholder="例如：设计师、研究生、咖啡店店员", key="required_char_occupation")
             with c_profile2:
                 city = st.text_input("城市", placeholder="例如：上海")
             daily_rhythm = st.text_area(
                 "生活节奏",
                 placeholder="例如：长期加班，独居，睡眠差，深夜更活跃，白天回复断断续续",
                 height=70,
+                key="required_char_daily_rhythm",
             )
 
             c4, c5, c6 = st.columns([1, 1, 1])
@@ -1108,18 +1179,19 @@ def _render_add_contact(characters: List[Dict[str, Any]]) -> None:
                 "那个人本身的性格与情感模式",
                 placeholder="外向还是依赖型、是否容易和人暧昧",
                 height=76,
+                key="required_char_emotional_pattern",
             )
             st.markdown("**人格结构**")
             p1, p2 = st.columns([1, 1])
             with p1:
-                core_need = st.text_input("核心需求", placeholder="例如：被认可、安全感、自由")
+                core_need = st.text_input("核心需求", placeholder="例如：被认可、安全感、自由", key="required_char_core_need")
             with p2:
-                core_fear = st.text_input("核心恐惧", placeholder="例如：被忽视、失控、无价值")
+                core_fear = st.text_input("核心恐惧", placeholder="例如：被忽视、失控、无价值", key="required_char_core_fear")
             p3, p4 = st.columns([1, 1])
             with p3:
                 defense_mechanism = st.text_input("防御机制", placeholder="例如：嘴硬、冷淡、开玩笑、逃避")
             with p4:
-                affection_style = st.text_input("情感表达方式", placeholder="例如：分享生活、照顾细节、故意冷一下")
+                affection_style = st.text_input("情感表达方式", placeholder="例如：分享生活、照顾细节、故意冷一下", key="required_char_affection_style")
 
             st.markdown("**人生痕迹**")
             family_background = st.text_area(
@@ -1156,6 +1228,7 @@ def _render_add_contact(characters: List[Dict[str, Any]]) -> None:
                     "最近状态",
                     placeholder="例如：最近项目压身，情绪比平时更敏感",
                     height=70,
+                    key="required_char_recent_state",
                 )
             emotional_residue = st.text_area(
                 "情绪残留",
@@ -1166,40 +1239,56 @@ def _render_add_contact(characters: List[Dict[str, Any]]) -> None:
                 "你对 TA 的印象",
                 placeholder="写下你的直觉、关键词、让你在意的细节……",
                 height=104,
+                key="required_char_impression",
             )
             submitted = st.form_submit_button("建立档案", use_container_width=True)
 
         if submitted:
-            save_profile(
-                name,
-                emoji,
-                identity,
-                gender,
-                age,
-                occupation,
-                city,
-                daily_rhythm,
-                acquaintance_method,
-                acquaintance_duration,
-                contact_frequency,
-                interaction_content,
-                offline_interaction,
-                specialness,
-                boundaries,
-                emotional_pattern,
-                core_need,
-                core_fear,
-                defense_mechanism,
-                affection_style,
-                family_background,
-                important_events,
-                unfinished_complex,
-                personal_desire,
-                day_night_variation,
-                recent_state,
-                emotional_residue,
-                impression,
-            )
+            required_fields = {
+                "昵称": name,
+                "职业/身份": occupation,
+                "生活节奏": daily_rhythm,
+                "性格与情感模式": emotional_pattern,
+                "核心需求": core_need,
+                "核心恐惧": core_fear,
+                "情感表达方式": affection_style,
+                "最近状态": recent_state,
+                "你对 TA 的印象": impression,
+            }
+            missing = [label for label, value in required_fields.items() if not str(value or "").strip()]
+            if missing:
+                st.error("请先补齐粉色必填项：" + "、".join(missing))
+            else:
+                save_profile(
+                    name,
+                    emoji,
+                    identity,
+                    gender,
+                    age,
+                    occupation,
+                    city,
+                    daily_rhythm,
+                    acquaintance_method,
+                    acquaintance_duration,
+                    contact_frequency,
+                    interaction_content,
+                    offline_interaction,
+                    specialness,
+                    boundaries,
+                    emotional_pattern,
+                    core_need,
+                    core_fear,
+                    defense_mechanism,
+                    affection_style,
+                    family_background,
+                    important_events,
+                    unfinished_complex,
+                    personal_desire,
+                    day_night_variation,
+                    recent_state,
+                    emotional_residue,
+                    impression,
+                )
         if st.button("取消", use_container_width=True, key="cancel_add_contact"):
             st.session_state.show_add_contact = False
             st.rerun()
@@ -1465,12 +1554,7 @@ def _query_param(name: str) -> Optional[str]:
 
 
 def _clear_companion_action_params(selected_id: Optional[str] = None) -> None:
-    try:
-        st.query_params.clear()
-        if selected_id:
-            st.query_params["companion_char"] = selected_id
-    except Exception:
-        pass
+    _set_companion_query(selected_id)
 
 
 def _handle_contact_action(characters: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1520,18 +1604,11 @@ def _handle_contact_action(characters: List[Dict[str, Any]]) -> List[Dict[str, A
 
 def _render_sidebar(characters: List[Dict[str, Any]], selected: Optional[Dict[str, Any]]) -> None:
     selected_id = selected.get("id") if selected else ""
-    st.markdown(
+    _render_raw_html(
         dedent("""
         <aside class="wx-sidebar">
             <nav class="wx-rail">
                 <div class="wx-rail-avatar">🙂</div>
-                <div class="wx-rail-icon active">●</div>
-                <div class="wx-rail-icon">☰</div>
-                <div class="wx-rail-icon">□</div>
-                <div class="wx-rail-icon">◎</div>
-                <div class="wx-rail-spacer"></div>
-                <div class="wx-rail-icon">▣</div>
-                <div class="wx-rail-icon">☷</div>
             </nav>
             <section class="wx-conv-panel">
                 <div class="wx-left-head">
@@ -1540,8 +1617,9 @@ def _render_sidebar(characters: List[Dict[str, Any]], selected: Optional[Dict[st
                         <div class="wx-plus">+</div>
                     </div>
                 </div>
+            </section>
+        </aside>
         """).strip(),
-        unsafe_allow_html=True,
     )
 
     st.markdown('<div class="wx-sidebar-buttons">', unsafe_allow_html=True)
@@ -1572,22 +1650,23 @@ def _render_sidebar(characters: List[Dict[str, Any]], selected: Optional[Dict[st
         unread_html = f'<span class="wx-unread">{unread}</span>' if unread else ""
         muted = '<span class="wx-muted">⌁</span>' if not active else ""
         pin = "📌 " if char.get("pinned") else ""
-        char_id = escape(str(char.get("id", "")))
+        char_id = escape(str(char.get("id", "")), quote=True)
         pinned_attr = "1" if char.get("pinned") else "0"
-        list_html.append(dedent(f"""
-        <div class="wx-contact{' active' if active else ''}" data-char-id="{char_id}" data-pinned="{pinned_attr}" onclick="window.location.href='{_contact_href(char.get("id", ""))}'">
-            <div class="wx-avatar">{escape(char.get("emoji", "😊"))}</div>
-            <div class="wx-contact-main">
-                <div class="wx-contact-name">{pin}{escape(char.get("name", "新朋友"))}</div>
-                <div class="wx-contact-preview">{escape(_last_message(messages))}</div>
-            </div>
-            <div class="wx-contact-time">{escape(_last_time(messages))}</div>
-            {unread_html}
-            {muted}
-        </div>
-        """).strip())
-    list_html.append("</div></section></aside>")
-    st.markdown("".join(list_html), unsafe_allow_html=True)
+        href = escape(_contact_href(str(char.get("id", ""))), quote=True)
+        list_html.append(
+            f'<a class="wx-contact{" active" if active else ""}" href="{href}" '
+            f'data-char-id="{char_id}" data-pinned="{pinned_attr}">'
+            f'<div class="wx-avatar">{escape(str(char.get("emoji") or "😊"))}</div>'
+            f'<div class="wx-contact-main">'
+            f'<div class="wx-contact-name">{pin}{escape(str(char.get("name") or "新朋友"))}</div>'
+            f'<div class="wx-contact-preview">{escape(_last_message(messages))}</div>'
+            f'</div>'
+            f'<div class="wx-contact-time">{escape(_last_time(messages))}</div>'
+            f'{unread_html}{muted}'
+            f'</a>'
+        )
+    list_html.append("</div>")
+    _render_raw_html("".join(list_html))
 
 
 def _install_contact_context_menu() -> None:

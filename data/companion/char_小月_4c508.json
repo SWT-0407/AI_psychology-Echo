@@ -84,5 +84,13 @@
     "role": "assistant",
     "content": "我会先盯一下那些容易被你忽略的小事。 你可以继续讲细一点。",
     "time": "2026-05-27T10:09:39"
+  },
+  {
+    "role": "assistant",
+    "content": "我有点担心你现在的安全。别一个人扛着，先联系身边可信任的人或当地紧急支持。你现在安全吗？",
+    "time": "2026-05-27T18:19:10",
+    "proactive": true,
+    "proactive_channel": "companion",
+    "proactive_reason": "due"
   }
 ]

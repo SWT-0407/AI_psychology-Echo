@@ -726,7 +726,11 @@ def init_runtime_state() -> None:
     st.session_state.setdefault("selected_history_id", None)
     _restore_context_from_query()
     st.session_state.setdefault("psy_messages", [
-        make_message("assistant", "你好，我是 Echo。你可以像写日记一样告诉我今天发生了什么，我会慢慢陪你梳理。")
+        make_message(
+            "assistant",
+            "你好，我是 Echo。接下来我们会通过对话了解六个维度：情绪状态、焦虑与压力、生理状态、"
+            "行为与动力、社交与支持、认知与意义。你可以先说说最近一周最明显的变化。",
+        )
     ])
     st.session_state.setdefault("psy_scores", {})
     st.session_state.setdefault("psy_record_id", None)

@@ -284,7 +284,7 @@ def render_home_page() -> None:
 
     c1, c2, c3 = st.columns(3, gap="large")
     with c1:
-        _feature_card("🔬", "心理评测", "手帐日记、每日心情、历史记录和六维心理报告。")
+        _feature_card("🔬", "心理评测", "六维访谈、每日心情、历史记录和心理评估报告。")
         if st.button("进入心理评测", use_container_width=True, key="go_psytest"):
             st.session_state.page = "psytest"
             st.rerun()

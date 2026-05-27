@@ -65,7 +65,15 @@
     "content": "你好呀。我在这儿呢。  \n不用急着找话题，你可以先随便待会儿，或者想到什么了再慢慢说给我听。",
     "time": "2026-05-27T10:30:53",
     "model_source": "deepseek",
-    "rating": 4,
-    "rated_at": "2026-05-27T13:30:41"
+    "rating": 1,
+    "rated_at": "2026-05-27T18:19:06"
+  },
+  {
+    "role": "assistant",
+    "content": "我有点担心你现在的安全。如果你有伤害自己的冲动，请立刻联系身边可信任的人，或拨打当地紧急电话/心理援助热线。你也可以先回我：现在安全吗？",
+    "time": "2026-05-27T18:33:02",
+    "proactive": true,
+    "proactive_channel": "treehole",
+    "proactive_reason": "due"
   }
 ]

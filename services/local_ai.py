@@ -986,10 +986,10 @@ def _psytest_empathy_line(user_text: str, scores: Dict[str, int]) -> str:
     if any(word in user_text for word in ["自责", "没用", "失败", "迷茫", "没意义"]):
         return "我听见那些很伤自己的评价了，但它们更像是压力下的声音，不等于你本身。"
     if any(word in user_text for word in ["开心", "顺利", "轻松", "舒服", "期待", "平静"]):
-        return "这页里也有一些亮一点的部分，我会把它当成你现在可用的资源。"
+        return "你的描述里也有一些亮一点的部分，我会把它当成你现在可用的资源。"
     if overall_score(scores) < 45:
         return "我读到的是一段很耗力的状态，先不用急着整理得很清楚。"
-    return "我读到了今天这页里很真实的一块。"
+    return "我听到了你现在状态里很真实的一块。"
 
 
 def _psytest_reply(
@@ -1018,7 +1018,7 @@ def _psytest_reply(
     if incomplete or overall_score(scores) < 65:
         return f"{empathy} 画像已经比较清楚了，还差一点点：{question}"
 
-    return "目前的信息已经能形成一份比较完整的六维画像了。你可以继续把今天没说完的部分写下来，也可以先生成报告看看整体结果。"
+    return "目前的信息已经能形成一份比较完整的六维画像了。你可以继续补充没聊完的部分，也可以先生成报告看看整体结果。"
 
 
 def generate_reply(

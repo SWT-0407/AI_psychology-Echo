@@ -18,11 +18,20 @@ from services.app_storage import (
     save_profile,
     update_history_messages,
 )
-from services.local_ai import DIMENSIONS, generate_reply, make_report, score_messages
+from services.local_ai import (
+    DIMENSIONS,
+    DIMENSION_COVERAGE_TERMS,
+    generate_reply,
+    make_report,
+    overall_score,
+    score_messages,
+)
 from services.message_format import messages_to_readable_text, normalize_messages
 from services.proactive_engine import maybe_add_care_proactive
 from services.safety import assess_message_safety, attach_safety_metadata, make_safety_reply
 from ui.crisis_alert import queue_crisis_alert, render_crisis_alert_if_needed
+from utils.status_assets import get_status_assets
+from utils.visualization import draw_radar_chart
 
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "assets" / "diary_templates"
@@ -32,6 +41,29 @@ TEMPLATE_FILES = {
     "calendar": "calendar.jpg",
     "history": "history.jpg",
     "chat": "chat.jpg",
+}
+
+PSYTEST_INTRO_MESSAGE = (
+    "你好，我是 Echo。我们先不急着整理结论，只把最近一周的心情、压力、身体感受、"
+    "行动状态、身边关系或一点点期待慢慢放出来。你可以从最明显的一件小事说起。"
+)
+
+SOFT_ASSESSMENT_TOPICS = {
+    "x1": ("心情天气", "开心、烦躁、空白、想哭，都可以先放在这里。"),
+    "x2": ("肩上的压力", "事情太多时，先说最占心的一件。"),
+    "x3": ("身体信号", "睡眠、胃口、疲惫或紧绷，都算数。"),
+    "x4": ("行动能量", "想做却动不了，也值得被听见。"),
+    "x5": ("身边关系", "亲近、孤单、被误会，都可以慢慢说。"),
+    "x6": ("一点意义", "支撑你的、让你怀疑的，都可以出现。"),
+}
+
+SOFT_FOCUS_PROMPTS = {
+    "x1": "此刻最像什么天气？",
+    "x2": "哪件事最占心？",
+    "x3": "身体哪里最想被照顾？",
+    "x4": "今天的能量大概停在哪里？",
+    "x5": "最近哪段关系最牵动你？",
+    "x6": "有什么还在轻轻支撑你？",
 }
 
 CALENDAR_MOOD_OPTIONS = [
@@ -990,6 +1022,283 @@ div[data-testid="stChatInput"] textarea {
     background: #fffdfc !important;
     color: #57434b !important;
 }
+.assessment-chat-shell {
+    width: min(1100px, calc(100vw - 72px));
+    min-height: 560px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 310px minmax(0, 1fr);
+    overflow: hidden;
+    border: 2px solid rgba(154, 106, 115, .42);
+    border-radius: 12px 12px 0 0;
+    background: #fffdfc;
+    box-shadow: 0 16px 34px rgba(104, 58, 75, .14);
+}
+.assessment-sidebar {
+    padding: 18px 16px;
+    background: #fff6f8;
+    border-right: 2px solid rgba(154, 106, 115, .22);
+}
+.assessment-title {
+    color: #463a42;
+    font-size: 20px;
+    font-weight: 950;
+    margin-bottom: 6px;
+}
+.assessment-subtitle {
+    color: #7a6270;
+    font-size: 13px;
+    line-height: 1.55;
+    margin-bottom: 14px;
+}
+.assessment-dimensions {
+    display: grid;
+    gap: 8px;
+}
+.assessment-dimension {
+    padding: 10px 11px;
+    border: 1px solid rgba(154, 106, 115, .24);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .84);
+}
+.assessment-dimension.focus {
+    border-color: rgba(219, 116, 139, .72);
+    box-shadow: 0 0 0 2px rgba(219, 116, 139, .10);
+}
+.assessment-dim-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #4a3f48;
+    font-size: 14px;
+    font-weight: 900;
+}
+.assessment-score {
+    color: #7c5966;
+    font-size: 13px;
+    white-space: nowrap;
+}
+.assessment-meter {
+    height: 7px;
+    margin: 8px 0 6px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #ead9df;
+}
+.assessment-meter-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #d98a9b, #8aa7c2);
+}
+.assessment-status {
+    color: #806775;
+    font-size: 12px;
+    font-weight: 800;
+}
+.assessment-next {
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px dashed rgba(154, 106, 115, .34);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .62);
+    color: #6e5663;
+    font-size: 13px;
+    line-height: 1.55;
+}
+.assessment-next strong {
+    display: block;
+    color: #463a42;
+    margin-bottom: 4px;
+}
+.assessment-soft-list {
+    display: grid;
+    gap: 9px;
+}
+.assessment-soft-card {
+    display: grid;
+    grid-template-columns: 12px minmax(0, 1fr);
+    gap: 9px;
+    padding: 10px 11px;
+    border: 1px solid rgba(154, 106, 115, .20);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .76);
+}
+.assessment-soft-card.active {
+    border-color: rgba(219, 116, 139, .58);
+    background: rgba(255, 248, 251, .96);
+    box-shadow: 0 0 0 2px rgba(219, 116, 139, .08);
+}
+.assessment-soft-dot {
+    width: 8px;
+    height: 8px;
+    margin-top: 6px;
+    border-radius: 50%;
+    background: #d98a9b;
+    box-shadow: 0 0 0 4px rgba(217, 138, 155, .13);
+}
+.assessment-soft-card:nth-child(2n) .assessment-soft-dot {
+    background: #8aa7c2;
+    box-shadow: 0 0 0 4px rgba(138, 167, 194, .14);
+}
+.assessment-soft-label {
+    color: #4a3f48;
+    font-size: 14px;
+    font-weight: 950;
+}
+.assessment-soft-line {
+    margin-top: 3px;
+    color: #806775;
+    font-size: 12px;
+    font-weight: 760;
+    line-height: 1.45;
+}
+.assessment-breathe {
+    margin: 14px 0;
+    padding: 12px;
+    border: 1px dashed rgba(154, 106, 115, .34);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .62);
+    color: #6e5663;
+    font-size: 13px;
+    line-height: 1.55;
+}
+.assessment-breathe strong {
+    display: block;
+    color: #463a42;
+    margin-bottom: 4px;
+}
+.assessment-dialog {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: #f8fbfd;
+}
+.assessment-dialog-head {
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(93, 114, 132, .18);
+    background: #ffffff;
+}
+.assessment-dialog-title {
+    color: #344150;
+    font-size: 19px;
+    font-weight: 950;
+}
+.assessment-dialog-meta {
+    margin-top: 4px;
+    color: #6c7b88;
+    font-size: 13px;
+}
+.assessment-messages {
+    flex: 1;
+    min-height: 420px;
+    max-height: 560px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 20px;
+}
+.assessment-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+.assessment-row.user {
+    flex-direction: row-reverse;
+}
+.assessment-avatar {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid rgba(52, 65, 80, .18);
+    background: #fff;
+    color: #4c6578;
+    font-size: 13px;
+    font-weight: 950;
+}
+.assessment-bubble-wrap {
+    max-width: min(76%, 640px);
+}
+.assessment-speaker {
+    margin-bottom: 4px;
+    color: #687786;
+    font-size: 12px;
+    font-weight: 850;
+}
+.assessment-row.user .assessment-speaker {
+    text-align: right;
+}
+.assessment-bubble {
+    padding: 12px 14px;
+    border: 1px solid rgba(52, 65, 80, .14);
+    border-radius: 14px;
+    background: #ffffff;
+    color: #39434d;
+    font-size: 15px;
+    line-height: 1.62;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.assessment-row.user .assessment-bubble {
+    background: #eef6fb;
+    border-color: rgba(107, 151, 180, .24);
+}
+.assessment-time {
+    margin-top: 4px;
+    color: #8a97a3;
+    font-size: 12px;
+}
+.assessment-row.user .assessment-time {
+    text-align: right;
+}
+div[data-testid="stForm"]:has(#assessment-input-anchor) {
+    width: min(1100px, calc(100vw - 72px));
+    margin: 0 auto 16px;
+    padding: 14px 16px 16px !important;
+    border: 2px solid rgba(154, 106, 115, .42) !important;
+    border-top: 0 !important;
+    border-radius: 0 0 12px 12px !important;
+    background: #f1f5f9 !important;
+    box-shadow: 0 16px 34px rgba(104, 58, 75, .12) !important;
+}
+div[data-testid="stForm"]:has(#assessment-input-anchor) [data-testid="stVerticalBlock"] {
+    gap: 8px !important;
+}
+div[data-testid="stForm"]:has(#assessment-input-anchor) label {
+    display: none !important;
+}
+div[data-testid="stForm"]:has(#assessment-input-anchor) input {
+    min-height: 42px !important;
+    border: 2px solid #d09aa8 !important;
+    border-radius: 14px !important;
+    background: #fffdfc !important;
+    color: #57434b !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+}
+div[data-testid="stForm"]:has(#assessment-input-anchor) input::placeholder {
+    color: #8d7b84 !important;
+}
+div[data-testid="stForm"]:has(#assessment-input-anchor) .stButton > button {
+    min-height: 42px;
+    height: 42px;
+    border: 0 !important;
+    border-radius: 12px !important;
+    background: #dfe5ee !important;
+    color: #8f99a7 !important;
+    font-size: 24px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+}
+div[data-testid="stForm"]:has(#assessment-input-anchor) .stButton > button:hover {
+    background: #d8c2cc !important;
+    color: #704d5c !important;
+}
 .diary-action-row {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1005,6 +1314,17 @@ div[data-testid="stChatInput"] textarea {
     .history-column.left { margin-top: 0; }
     .history-column.right .history-card,
     .history-card { height: 138px; }
+    .assessment-chat-shell {
+        width: 100%;
+        grid-template-columns: 1fr;
+    }
+    .assessment-sidebar {
+        border-right: 0;
+        border-bottom: 2px solid rgba(154, 106, 115, .22);
+    }
+    .assessment-bubble-wrap {
+        max-width: 86%;
+    }
     .intro-profile-floating div[data-testid="stForm"] {
         left: 15vw;
         top: 42vh;
@@ -1595,8 +1915,8 @@ def _chat_paper(messages: List[Dict[str, Any]], title: str) -> None:
     assistant_text = str(exchange.get("assistant") or "")
 
     if _template_path("chat"):
-        left_html = escape(user_text).replace("\n", "<br/>") or '<span class="tpl-diary-empty">把想说的话写在这里...</span>'
-        right_html = escape(assistant_text).replace("\n", "<br/>") or '<span class="tpl-diary-empty">日记会在这里回应你。</span>'
+        left_html = escape(user_text).replace("\n", "<br/>") or '<span class="tpl-diary-empty">等待你的回答...</span>'
+        right_html = escape(assistant_text).replace("\n", "<br/>") or '<span class="tpl-diary-empty">Echo 会继续进行六维追问。</span>'
         parts = [
             f'<div class="tpl-text" style="left:8%;top:9%;width:42%;">{escape(date_text)} · {_weekday_en(now)} · {now.strftime("%H:%M")}</div>',
             f'<div class="tpl-diary-page-text left">{left_html}</div>',
@@ -1605,8 +1925,8 @@ def _chat_paper(messages: List[Dict[str, Any]], title: str) -> None:
         _render_template("chat", "".join(parts))
         return
 
-    left_html = escape(user_text).replace("\n", "<br/>") or "把想说的话写在这里..."
-    right_html = escape(assistant_text).replace("\n", "<br/>") or "日记会在这里回应你。"
+    left_html = escape(user_text).replace("\n", "<br/>") or "等待你的回答..."
+    right_html = escape(assistant_text).replace("\n", "<br/>") or "Echo 会继续进行六维追问。"
     html = [
         '<div class="chat-paper">',
         f'<div class="chat-top"><div>{escape(date_text)} · {_weekday_en(now)} · {now.strftime("%H:%M")}</div><div>{escape(title)}</div></div>',
@@ -1614,6 +1934,116 @@ def _chat_paper(messages: List[Dict[str, Any]], title: str) -> None:
     ]
     html.append("</div>")
     st.markdown("".join(html), unsafe_allow_html=True)
+
+
+def _ensure_assessment_intro(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    old_markers = ["像写日记一样", "新的日记页打开", "日记会在这里回应", "六个维度"]
+    if not messages:
+        messages = [make_message("assistant", PSYTEST_INTRO_MESSAGE)]
+        st.session_state.psy_messages = messages
+        return messages
+
+    first = messages[0]
+    if first.get("role") == "assistant" and any(marker in str(first.get("content", "")) for marker in old_markers):
+        updated = dict(first)
+        updated["content"] = PSYTEST_INTRO_MESSAGE
+        messages = [updated, *messages[1:]]
+        st.session_state.psy_messages = messages
+    return messages
+
+
+def _assessment_dimension_coverage(messages: List[Dict[str, Any]]) -> Dict[str, bool]:
+    text = " ".join(
+        str(message.get("content", ""))
+        for message in messages
+        if message.get("role") == "user"
+    )
+    return {
+        key: any(term in text for term in terms)
+        for key, terms in DIMENSION_COVERAGE_TERMS.items()
+    }
+
+
+def _assessment_focus_key(scores: Dict[str, int], coverage: Dict[str, bool]) -> str:
+    return min(
+        DIMENSIONS,
+        key=lambda key: (scores.get(key, 5) + (1.5 if coverage.get(key) else 0.0), key),
+    )
+
+
+def _assessment_message_row(msg: Dict[str, Any]) -> str:
+    role = "user" if msg.get("role") == "user" else "assistant"
+    speaker = "你" if role == "user" else "Echo"
+    avatar = "你" if role == "user" else "AI"
+    content = escape(str(msg.get("content", ""))).replace("\n", "<br/>")
+    time_text = escape(message_time(msg))
+    return f"""
+    <div class="assessment-row {role}">
+        <div class="assessment-avatar">{avatar}</div>
+        <div class="assessment-bubble-wrap">
+            <div class="assessment-speaker">{escape(speaker)}</div>
+            <div class="assessment-bubble">{content}</div>
+            <div class="assessment-time">{time_text}</div>
+        </div>
+    </div>
+    """
+
+
+def _assessment_chat_panel(messages: List[Dict[str, Any]], scores: Dict[str, int]) -> None:
+    coverage = _assessment_dimension_coverage(messages)
+    focus_key = _assessment_focus_key(scores, coverage)
+    focus_label, _ = SOFT_ASSESSMENT_TOPICS.get(focus_key, ("此刻", "慢慢说就好。"))
+    focus_prompt = SOFT_FOCUS_PROMPTS.get(focus_key, "现在最想从哪里说起？")
+
+    topic_rows = []
+    for key, (label, line) in SOFT_ASSESSMENT_TOPICS.items():
+        active_class = " active" if key == focus_key else ""
+        topic_rows.append(
+            f"""
+            <div class="assessment-soft-card{active_class}">
+                <span class="assessment-soft-dot"></span>
+                <div>
+                    <div class="assessment-soft-label">{escape(label)}</div>
+                    <div class="assessment-soft-line">{escape(line)}</div>
+                </div>
+            </div>
+            """
+        )
+
+    visible_messages = [
+        message
+        for message in messages
+        if message.get("role") in {"user", "assistant"} and str(message.get("content", "")).strip()
+    ][-24:]
+    if not visible_messages:
+        visible_messages = [make_message("assistant", PSYTEST_INTRO_MESSAGE)]
+    message_rows = "".join(_assessment_message_row(message) for message in visible_messages)
+
+    panel_html = f"""
+        <div class="assessment-chat-shell">
+            <aside class="assessment-sidebar">
+                <div class="assessment-title">今天先放轻一点</div>
+                <div class="assessment-subtitle">不用整理成答案，也不用一次讲完整。这里会跟着你的节奏。</div>
+                <div class="assessment-breathe">
+                    <strong>先落下来</strong>
+                    吸气四拍，呼气六拍。慢一点也可以。
+                </div>
+                <div class="assessment-soft-list">{"".join(topic_rows)}</div>
+                <div class="assessment-next">
+                    <strong>此刻可以落在</strong>
+                    {escape(focus_label)}：{escape(focus_prompt)}
+                </div>
+            </aside>
+            <section class="assessment-dialog">
+                <div class="assessment-dialog-head">
+                    <div class="assessment-dialog-title">Echo 与你</div>
+                    <div class="assessment-dialog-meta">最近一周的起伏，可以慢慢放在这里。</div>
+                </div>
+                <div class="assessment-messages">{message_rows}</div>
+            </section>
+        </div>
+        """
+    st.markdown(_clean_html_fragment(panel_html), unsafe_allow_html=True)
 
 
 def _history_dialog(messages: List[Dict[str, Any]], title: str, record: Dict[str, Any]) -> None:
@@ -1645,6 +2075,42 @@ def _turn_diary_page() -> None:
     st.rerun()
 
 
+def _render_psy_report(scores: Dict[str, int], messages: List[Dict[str, Any]]) -> None:
+    def _score_value(value: Any) -> int:
+        try:
+            return max(0, min(10, round(float(value))))
+        except (TypeError, ValueError):
+            return 5
+
+    current_vals = [_score_value(scores.get(key, 5)) for key in DIMENSIONS]
+    composite_score = overall_score(scores)
+    _, level, theme_color, _ = get_status_assets(composite_score, current_vals)
+    labels_html = "".join(
+        f'<span class="score-pill">{escape(name)}: {current_vals[index]}/10</span>'
+        for index, name in enumerate(DIMENSIONS.values())
+    )
+
+    st.markdown(
+        f"""
+        <div style="margin: 18px auto 10px; max-width: 1100px;">
+            <div style="font-size: 18px; font-weight: 900; color: #5d4650;">六维心理画像</div>
+            <div style="font-size: 14px; color: #806772; margin-top: 4px;">
+                当前综合健康分 {composite_score}/100 · {escape(level)} · 分数越高代表状态越稳定
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    chart_col, report_col = st.columns([0.9, 1.1], gap="large")
+    with chart_col:
+        fig = draw_radar_chart(current_vals, list(DIMENSIONS.values()), theme_color, figsize=(4.6, 4.6))
+        st.pyplot(fig, use_container_width=True)
+        st.markdown(f'<div style="text-align:center;">{labels_html}</div>', unsafe_allow_html=True)
+    with report_col:
+        st.markdown(make_report(scores, messages), unsafe_allow_html=True)
+
+
 def _apply_psy_proactive(messages: List[Dict[str, Any]], scores: Dict[str, int], force: bool = False) -> bool:
     messages, added, _ = maybe_add_care_proactive("psytest", messages, scores, force=force)
     if not added:
@@ -1664,16 +2130,34 @@ def _apply_psy_proactive(messages: List[Dict[str, Any]], scores: Dict[str, int],
     return True
 
 
+def _assessment_input_form() -> Optional[str]:
+    with st.form("psy_live_input_form", clear_on_submit=True):
+        st.markdown('<span id="assessment-input-anchor"></span>', unsafe_allow_html=True)
+        input_col, send_col = st.columns([1, 0.055], gap="small")
+        with input_col:
+            prompt = st.text_input(
+                "评测对话输入",
+                placeholder="从最近一周的情绪、压力、睡眠、行动、社交或意义感聊起...",
+                label_visibility="collapsed",
+                key="psy_live_text_input",
+            )
+        with send_col:
+            submitted = st.form_submit_button("↑", use_container_width=True)
+    if submitted:
+        return prompt
+    return None
+
+
 def render_live_chat() -> None:
-    messages = st.session_state.get("psy_messages", [])
+    messages = _ensure_assessment_intro(st.session_state.get("psy_messages", []))
     scores = st.session_state.get("psy_scores") or score_messages(messages)
     if _apply_psy_proactive(messages, scores):
-        messages = st.session_state.get("psy_messages", [])
+        messages = _ensure_assessment_intro(st.session_state.get("psy_messages", []))
         scores = st.session_state.get("psy_scores") or score_messages(messages)
 
-    _chat_paper(messages, "双人聊天")
+    _assessment_chat_panel(messages, scores)
 
-    prompt = st.chat_input("把想说的话写在这里...", key="psy_live_chat_input")
+    prompt = _assessment_input_form()
 
     if prompt and prompt.strip():
         user_text = prompt.strip()
@@ -1690,7 +2174,7 @@ def render_live_chat() -> None:
                 queue_crisis_alert("psytest", assessment, user_text, "Echo")
             messages.append(assistant_message)
         else:
-            with st.spinner("Echo 正在右页写回复..."):
+            with st.spinner("Echo 正在整理下一轮评估追问..."):
                 reply = generate_reply("psytest", user_text, messages, scores)
             messages.append(make_message("assistant", reply))
         record_id = save_history_record("psytest", messages, scores, st.session_state.get("psy_record_id"), mood="")
@@ -1701,28 +2185,22 @@ def render_live_chat() -> None:
         st.session_state.psy_visible_exchange = {"user": user_text, "assistant": reply}
         st.rerun()
 
-    score_html = "".join(f'<span class="score-pill">{name}: {scores.get(key, 5)}/10</span>' for key, name in DIMENSIONS.items())
-    st.markdown(f"<div>{score_html}</div>", unsafe_allow_html=True)
     if st.session_state.get("show_psy_report"):
-        st.markdown(make_report(scores, messages), unsafe_allow_html=True)
+        _render_psy_report(scores, messages)
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("生成/查看报告", use_container_width=True, key="show_report"):
             st.session_state.show_psy_report = not st.session_state.get("show_psy_report", False)
             st.rerun()
     with c2:
-        if st.button("历史记录", use_container_width=True, key="go_history_from_chat"):
-            st.session_state.diary_stage = "INFO"
-            st.rerun()
-    with c3:
         if st.button("主动关怀", use_container_width=True, key="psy_force_proactive"):
             if _apply_psy_proactive(messages, scores, force=True):
                 st.rerun()
-            st.toast("先写下一点心情，Echo 会更懂你。")
-    with c4:
+            st.toast("先补充一点近况，Echo 才能更准确地继续评估。")
+    with c3:
         if st.button("重新开始一次评估", use_container_width=True, key="reset_psy_chat"):
-            st.session_state.psy_messages = [make_message("assistant", "新的日记页打开了。今天先从哪里说起？")]
+            st.session_state.psy_messages = [make_message("assistant", PSYTEST_INTRO_MESSAGE)]
             st.session_state.psy_scores = {}
             st.session_state.psy_record_id = None
             st.session_state.show_psy_report = False
@@ -1810,20 +2288,19 @@ def render_nav() -> None:
             _back_home_button()
         return
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        if st.button("心情日历", use_container_width=True, key="nav_calendar"):
-            st.session_state.diary_stage = _month_tab()
-            st.rerun()
-    with c2:
-        if st.button("双人聊天", use_container_width=True, key="nav_chat"):
-            st.session_state.diary_stage = "NOTE"
-            st.rerun()
-    with c3:
-        if st.button("历史记录", use_container_width=True, key="nav_history"):
-            st.session_state.diary_stage = "INFO"
-            st.rerun()
-    with c4:
+    nav_items = [
+        ("心情日历", _month_tab(), "nav_calendar"),
+        ("双人聊天", "NOTE", "nav_chat"),
+        ("历史记录", "INFO", "nav_history"),
+    ]
+    visible_items = [item for item in nav_items if item[1] != stage]
+    columns = st.columns(len(visible_items) + 1)
+    for column, (label, target, key) in zip(columns, visible_items):
+        with column:
+            if st.button(label, use_container_width=True, key=key):
+                st.session_state.diary_stage = target
+                st.rerun()
+    with columns[-1]:
         _back_home_button()
 
 
