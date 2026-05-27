@@ -1770,11 +1770,11 @@ def render_nav() -> None:
     if stage not in ("NOTE", "INFO"):
         c1, c2, c3 = st.columns(3)
         with c1:
-            if st.button("鍙屼汉鑱婂ぉ", use_container_width=True, key="nav_chat_calendar"):
+            if st.button("双人聊天", use_container_width=True, key="nav_chat_calendar"):
                 st.session_state.diary_stage = "NOTE"
                 st.rerun()
         with c2:
-            if st.button("鍘嗗彶璁板綍", use_container_width=True, key="nav_history_calendar"):
+            if st.button("历史记录", use_container_width=True, key="nav_history_calendar"):
                 st.session_state.diary_stage = "INFO"
                 st.rerun()
         with c3:
