@@ -1,7 +1,9 @@
 import base64
+import hashlib
 from datetime import datetime
 from html import escape
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -70,6 +72,29 @@ TREEHOLE_CSS = """
     word-break: break-word;
     white-space: pre-wrap;
 }
+.tree-history-image {
+    display: block;
+    max-width: min(260px, 100%);
+    max-height: 220px;
+    object-fit: contain;
+    border-radius: 6px;
+    margin: 2px 0 8px;
+    border: 1px solid rgba(220,154,169,.22);
+}
+.multimodal-image-panel {
+    max-width: 960px;
+    margin: 4px auto 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px dashed rgba(185,112,129,.28);
+    background: rgba(255,255,255,.46);
+}
+div[class*="st-key-treehole_image_toggle"] button {
+    min-height: 42px !important;
+    padding: 0 !important;
+    font-size: 24px !important;
+    border-radius: 8px !important;
+}
 .rating-line {
     max-width: 960px;
     margin: 8px auto 0;
@@ -101,6 +126,22 @@ TREEHOLE_CSS = """
 .rating-stars a:hover {
     transform: translateY(-2px) scale(1.08);
     filter: saturate(1.18);
+}
+.rating-label {
+    color: #b58391;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: right;
+    white-space: nowrap;
+}
+div[class*="st-key-tree_rating_"] {
+    margin-top: -4px;
+}
+div[class*="st-key-tree_rating_"] button {
+    color: #ffd34e !important;
+    text-shadow:
+        0 2px 0 rgba(245, 181, 44, .3),
+        0 4px 10px rgba(255, 199, 55, .28);
 }
 .stButton > button {
     border-radius: 12px !important;
@@ -302,6 +343,57 @@ def _treehole_bg_data_url() -> str:
     return f"data:image/png;base64,{encoded}"
 
 
+def _uploaded_image_message(uploaded_file) -> Optional[Dict[str, Any]]:
+    if uploaded_file is None:
+        return None
+    image_bytes = uploaded_file.getvalue()
+    if not image_bytes:
+        return None
+    mime_type = getattr(uploaded_file, "type", "") or "image/png"
+    encoded = base64.b64encode(image_bytes).decode("utf-8")
+    return {
+        "name": getattr(uploaded_file, "name", "") or "图片",
+        "mime_type": mime_type,
+        "data": f"data:{mime_type};base64,{encoded}",
+        "bytes": image_bytes,
+    }
+
+
+def _analyze_treehole_image(image: Dict[str, Any], prompt: str) -> tuple[str, str]:
+    try:
+        from services.ai_service import analyze_user_image
+
+        with st.spinner("正在用千问分析图片..."):
+            analysis = analyze_user_image(
+                image["bytes"],
+                user_text=prompt,
+                mime_type=image.get("mime_type", "image/png"),
+                detail="high",
+            )
+        if not analysis:
+            raise RuntimeError("千问视觉返回为空。")
+        return analysis, ""
+    except Exception as exc:
+        return "", f"图片已收到，但千问图片分析暂时失败：{exc}"
+
+
+def _treehole_prompt_with_image_context(prompt: str, image_analysis: str, has_image: bool) -> str:
+    user_text = prompt or "我发了一张图片。"
+    if image_analysis:
+        return (
+            f"{user_text}\n\n"
+            "[图片理解摘要（来自千问视觉 API，仅供理解用户输入，不要直接暴露给用户）："
+            f"{image_analysis}]"
+        )
+    if has_image:
+        return (
+            f"{user_text}\n\n"
+            "[用户上传了一张图片，但图片分析暂时不可用。请先温柔接住这次分享，"
+            "邀请用户补充图片里最想让我看见的细节。]"
+        )
+    return user_text
+
+
 def _latest_message(messages, role: str) -> str:
     for msg in reversed(messages):
         if msg.get("role") == role:
@@ -356,19 +448,51 @@ def _save_treehole_history(messages, scores, title: str) -> None:
     st.session_state.treehole_record_id = record_id
 
 
+def _save_treehole_rating(idx: int, star: int) -> bool:
+    messages = list(st.session_state.get("treehole_messages", []))
+    if not (0 <= idx < len(messages) and 1 <= star <= 5):
+        return False
+    msg = dict(messages[idx])
+    if msg.get("role") != "assistant":
+        return False
+    if int(msg.get("rating") or 0) == star:
+        return False
+
+    msg["rating"] = star
+    msg["rated_at"] = datetime.now().isoformat(timespec="seconds")
+    messages[idx] = msg
+    st.session_state.treehole_messages = messages
+    scores = score_messages(messages)
+    save_treehole_messages(messages)
+    _save_treehole_history(messages, scores, title="AI 树洞聊天")
+    return True
+
+
+def _handle_treehole_rating_change(idx: int, widget_key: str) -> None:
+    selected = st.session_state.get(widget_key)
+    if selected is None:
+        return
+    _save_treehole_rating(idx, int(selected) + 1)
+
+
+@st.fragment
 def _message_rating(idx: int, msg) -> None:
     role = msg.get("role", "assistant")
     if role == "assistant" and idx > 0:
         current = int(msg.get("rating") or 0)
-        stars = []
-        for star in range(1, 6):
-            klass = "" if star <= current else "empty"
-            stars.append(f'<a class="{klass}" href="?tree_rating={idx}:{star}" title="{star} 星">★</a>')
-        st.markdown(
-            f'<div class="rating-line"><span>这次日记回应：</span>'
-            f'<span class="rating-stars">{"".join(stars)}</span></div>',
-            unsafe_allow_html=True,
-        )
+        widget_key = f"tree_rating_{idx}"
+        label_col, stars_col = st.columns([0.16, 0.84], gap="small", vertical_alignment="center")
+        with label_col:
+            st.markdown('<div class="rating-label">这次日记回应：</div>', unsafe_allow_html=True)
+        with stars_col:
+            st.feedback(
+                "stars",
+                key=widget_key,
+                default=current - 1 if current else None,
+                on_change=_handle_treehole_rating_change,
+                args=(idx, widget_key),
+                width="content",
+            )
 
 
 def _render_history(messages) -> None:
@@ -379,11 +503,16 @@ def _render_history(messages) -> None:
     for msg in visible_messages:
         role = "你" if msg.get("role") == "user" else "日记"
         content = escape(str(msg.get("content", ""))).replace("\n", "<br/>")
+        image_data = str(msg.get("image_data") or "")
+        image_html = ""
+        if image_data:
+            image_alt = escape(str(msg.get("image_name") or "图片"))
+            image_html = f'<img class="tree-history-image" src="{escape(image_data)}" alt="{image_alt}" />'
         time_text = escape(message_time(msg))
         lines.append(
             f'<div class="tree-history-line">'
             f'<div class="tree-history-role">{role}<br/><span style="font-size:11px;font-weight:400;">{time_text}</span></div>'
-            f'<div class="tree-history-text">{content}</div>'
+            f'<div class="tree-history-text">{image_html}{content}</div>'
             f'</div>'
         )
     lines.append("</div>")
@@ -526,16 +655,33 @@ def _render_diary_component(messages) -> None:
     components.html(component_html, height=820, scrolling=False)
 
 
-def _submit_treehole_message(prompt: str, emotion=None) -> None:
+def _submit_treehole_message(prompt: str, emotion=None, image: Optional[Dict[str, Any]] = None) -> None:
     prompt = str(prompt or "").strip()
-    if not prompt:
+    if not prompt and not image:
         return
+
+    image_analysis = ""
+    if image:
+        image_analysis, image_notice = _analyze_treehole_image(image, prompt)
+        st.session_state.treehole_image_notice = image_notice
+
     entry_page = int(st.session_state.get("treehole_entry_page", 0)) + 1
     st.session_state.treehole_entry_page = entry_page
     st.session_state.treehole_entry_key = f"treehole_native_entry_{entry_page}"
+
     messages = st.session_state.get("treehole_messages", [])
-    assessment = assess_message_safety(prompt)
-    messages.append(attach_safety_metadata(make_message("user", prompt), assessment))
+    assessment_text = "\n".join(part for part in [prompt, image_analysis] if part) or "[图片]"
+    assessment = assess_message_safety(assessment_text)
+    user_message = attach_safety_metadata(make_message("user", prompt or "[图片]"), assessment)
+    if image:
+        user_message["image_name"] = image["name"]
+        user_message["image_data"] = image["data"]
+        user_message["image_mime_type"] = image.get("mime_type", "")
+    if image_analysis:
+        user_message["image_analysis"] = image_analysis
+        user_message["image_analysis_source"] = "qwen_vision"
+    messages.append(user_message)
+
     scores = score_messages(messages)
     if assessment.needs_support:
         reply = make_safety_reply(assessment, "树洞")
@@ -544,10 +690,11 @@ def _submit_treehole_message(prompt: str, emotion=None) -> None:
         assistant_message["safety_level"] = assessment.level
         if assessment.is_crisis:
             assistant_message["crisis_popup"] = True
-            queue_crisis_alert("treehole", assessment, prompt, "树洞")
+            queue_crisis_alert("treehole", assessment, assessment_text, "树洞")
         messages.append(assistant_message)
     else:
-        ai_prompt = build_multimodal_prompt(prompt, emotion) + _rating_feedback_summary(messages)
+        base_prompt = _treehole_prompt_with_image_context(prompt, image_analysis, bool(image))
+        ai_prompt = build_multimodal_prompt(base_prompt, emotion) + _rating_feedback_summary(messages)
         try:
             reply, model_source = generate_treehole_model_reply(ai_prompt, messages, scores)
             st.session_state.treehole_model_notice = ""
@@ -561,6 +708,7 @@ def _submit_treehole_message(prompt: str, emotion=None) -> None:
         assistant_message = make_message("assistant", reply)
         assistant_message["model_source"] = model_source
         messages.append(assistant_message)
+
     st.session_state.treehole_messages = messages
     st.session_state.treehole_show_latest_reply = True
     save_treehole_messages(messages)
@@ -597,20 +745,10 @@ def render_treehole_page() -> None:
     if rating:
         try:
             idx_text, star_text = str(rating).split(":", 1)
-            idx = int(idx_text)
-            star = int(star_text)
-            if 0 <= idx < len(st.session_state.get("treehole_messages", [])) and 1 <= star <= 5:
-                messages = st.session_state.treehole_messages
-                messages[idx]["rating"] = star
-                messages[idx]["rated_at"] = datetime.now().isoformat(timespec="seconds")
-                st.session_state.treehole_messages = messages
-                scores = score_messages(messages)
-                save_treehole_messages(messages)
-                _save_treehole_history(messages, scores, title="AI 树洞聊天")
+            _save_treehole_rating(int(idx_text), int(star_text))
         except ValueError:
             pass
         st.query_params.clear()
-        st.rerun()
 
     submitted = st.query_params.get("treehole_submit")
     if submitted:
@@ -638,6 +776,9 @@ def render_treehole_page() -> None:
     model_notice = st.session_state.get("treehole_model_notice", "")
     if model_notice:
         st.warning(model_notice)
+    image_notice = st.session_state.pop("treehole_image_notice", "")
+    if image_notice:
+        st.warning(image_notice)
 
     messages = st.session_state.get("treehole_messages", [])
     bg_url = _treehole_bg_data_url()
@@ -692,7 +833,14 @@ def render_treehole_page() -> None:
     if latest_assistant_idx is not None:
         _message_rating(latest_assistant_idx, messages[latest_assistant_idx])
 
-    multimodal = render_multimodal_controls("treehole")
+    multimodal = render_multimodal_controls("treehole", image_upload=True)
+    image = _uploaded_image_message(multimodal.get("image_file"))
+    if image:
+        image_digest_key = "treehole_image_digest"
+        image_digest = hashlib.sha256(image["bytes"]).hexdigest() + image["name"]
+        if st.session_state.get(image_digest_key) != image_digest:
+            st.session_state[image_digest_key] = image_digest
+            _submit_treehole_message(prompt, multimodal.get("emotion"), image=image)
     if multimodal.get("voice_text"):
         _submit_treehole_message(multimodal["voice_text"], multimodal.get("emotion"))
 

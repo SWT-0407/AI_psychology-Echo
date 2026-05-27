@@ -58,7 +58,7 @@ def chat_with_ai(messages, temperature=0.7):
 # 千问：图片理解（多模态视觉）
 # ==========================================
 
-def chat_with_vision(image_bytes, messages, temperature=0.7, detail="high"):
+def chat_with_vision(image_bytes, messages, temperature=0.7, detail="high", mime_type="image/jpeg"):
     """
     使用千问多模态模型分析图片内容
 
@@ -86,7 +86,7 @@ def chat_with_vision(image_bytes, messages, temperature=0.7, detail="high"):
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}",
+                            "url": f"data:{mime_type or 'image/jpeg'};base64,{base64_image}",
                             "detail": detail
                         }
                     }
@@ -104,9 +104,99 @@ def chat_with_vision(image_bytes, messages, temperature=0.7, detail="high"):
     return response.choices[0].message.content
 
 
+def analyze_user_image(image_bytes, user_text="", mime_type="image/png", detail="high"):
+    """
+    使用千问视觉 API 分析用户上传到聊天中的图片。
+
+    返回一段适合放入树洞回复上下文的中文摘要；不直接作为最终回复展示。
+    """
+    import base64
+
+    if not QWEN_API_KEY:
+        raise RuntimeError("QWEN_API_KEY 未配置。")
+
+    prompt = (
+        "你是 AI 树洞聊天里的图片理解助手。请用自然中文客观分析用户上传的图片，"
+        "包括可见内容、场景氛围、图片中文字（如有）和可能关联的情绪线索。"
+        "不要做医学诊断，不要识别真实身份，不要推断敏感属性。"
+        "请控制在 120 字以内，最后给出一个适合树洞回复参考的主题或情绪线索。"
+    )
+    if str(user_text or "").strip():
+        prompt += f"\n用户随图片写下的话：{str(user_text).strip()}"
+
+    client = get_qwen_client()
+    base64_image = base64.b64encode(image_bytes).decode("utf-8")
+    response = client.chat.completions.create(
+        model=QWEN_VISION_MODEL,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mime_type or 'image/png'};base64,{base64_image}",
+                        "detail": detail,
+                    },
+                },
+            ],
+        }],
+        temperature=0.2,
+        max_tokens=350,
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
 # ==========================================
 # 千问：表情分析（专用版，短 prompt 快速响应）
 # ==========================================
+
+_FACE_EMOTION_CN = {
+    "happy": "开心",
+    "sad": "悲伤",
+    "angry": "生气",
+    "surprise": "惊讶",
+    "fear": "恐惧",
+    "disgust": "厌恶",
+    "neutral": "平静",
+    "contempt": "轻蔑",
+    "anxious": "焦虑",
+    "tired": "疲惫",
+    "unknown": "未识别",
+}
+
+_FACE_EMOTION_ALIASES = {
+    "surprised": "surprise",
+    "fearful": "fear",
+    "disgusted": "disgust",
+    "calm": "neutral",
+    "normal": "neutral",
+    "uncertain": "unknown",
+    "无法判断": "unknown",
+    "未识别": "unknown",
+}
+
+
+def _normalize_face_emotion(label):
+    raw = str(label or "unknown").strip().lower()
+    return _FACE_EMOTION_ALIASES.get(raw, raw if raw in _FACE_EMOTION_CN else "unknown")
+
+
+def _emotion_error_result(status, analysis, error=""):
+    return {
+        "emotion": "unknown",
+        "emotion_cn": _FACE_EMOTION_CN["unknown"],
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "anxiety": 0.0,
+        "fatigue": 0.0,
+        "engagement": 0.5,
+        "confidence": 0.0,
+        "analysis": analysis,
+        "status": status,
+        "error": error,
+    }
 
 def analyze_facial_expression(image_bytes, detail="low"):
     """

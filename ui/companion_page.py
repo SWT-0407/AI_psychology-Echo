@@ -645,24 +645,25 @@ textarea[aria-label="发消息"] {
     font-size: 14px !important;
 }
 .st-key-wx_composer_controls .st-key-companion_send_arrow {
-    position: absolute !important;
-    right: 16px !important;
-    bottom: 14px !important;
-    z-index: 5 !important;
-    width: 56px !important;
-    height: 30px !important;
+    position: fixed !important;
+    right: 34px !important;
+    bottom: 34px !important;
+    z-index: 200 !important;
+    width: 64px !important;
+    height: 34px !important;
+    display: block !important;
 }
 .st-key-wx_composer_controls .st-key-companion_send_arrow button {
-    width: 56px !important;
-    min-width: 56px !important;
-    height: 30px !important;
-    min-height: 30px !important;
+    width: 64px !important;
+    min-width: 64px !important;
+    height: 34px !important;
+    min-height: 34px !important;
     padding: 0 !important;
     border: 0 !important;
     border-radius: 0 !important;
     background: transparent !important;
-    color: #4f5965 !important;
-    font-size: 27px !important;
+    color: #30343a !important;
+    font-size: 32px !important;
     line-height: 1 !important;
 }
 .st-key-wx_composer_controls .st-key-companion_send_arrow button:hover,
@@ -992,7 +993,7 @@ def _render_add_contact(characters: List[Dict[str, Any]]) -> None:
             impression.strip(),
         ]
         personality = "；".join(part for part in personality_parts if part) or "温柔、耐心、愿意认真陪伴聊天。"
-        speaking_style = "自然、像微信聊天一样简短亲近。"
+        speaking_style = "自然、像微信聊天一样简短亲近，偶尔带一点符合人设的网络流行语。"
         char = create_character(name, emoji, personality, identity, age, speaking_style)
         char["gender"] = "" if gender == "未填写" else gender
         char["occupation"] = occupation.strip()
@@ -1727,7 +1728,7 @@ def _render_message_form(selected: Optional[Dict[str, Any]]) -> None:
         with tool_cols[2]:
             audio_file = None
             voice_clicked = st.button("🎙", key=f"{scope}_voice_button", help="录音")
-        submitted = st.button("↗", key="companion_send_arrow", help="发送")
+        submitted = st.button("➤", key="companion_send_arrow", help="发送")
 
         if voice_clicked:
             with st.spinner("正在聆听..."):

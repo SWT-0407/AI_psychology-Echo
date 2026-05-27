@@ -183,7 +183,15 @@ def _render_profile_snapshot() -> None:
     concern_text = f"画像 {concern}/100" if isinstance(concern, (int, float)) else ""
     tags = summary.get("tags") or ["画像生成中"]
     topics = summary.get("recent_topics") or ["暂无主题"]
-    tag_html = "".join(f'<span class="profile-tag">{escape(str(tag))}</span>' for tag in tags[:6])
+    signals = summary.get("signals") or []
+    if signals:
+        tag_html = "".join(
+            f'<span class="profile-tag">{escape(str(item.get("label", "")))} '
+            f'{escape(str(round(float(item.get("confidence", 0)) * 100)))}%</span>'
+            for item in signals[:6]
+        )
+    else:
+        tag_html = "".join(f'<span class="profile-tag">{escape(str(tag))}</span>' for tag in tags[:6])
     topic_html = "、".join(escape(str(topic)) for topic in topics[:4])
     safety_gate = summary.get("safety_gate_level") or ""
     risk_text = "重点关注" if summary.get("risk_level") in {"medium", "high"} or safety_gate in {"R2", "R3"} else "常规陪伴"
@@ -269,6 +277,9 @@ def render_home_page() -> None:
         unsafe_allow_html=True,
     )
     _render_profile_snapshot()
+    if st.button("查看/编辑用户画像", key="go_profile_page"):
+        st.session_state.page = "profile"
+        st.rerun()
     _render_proactive_controls()
 
     c1, c2, c3 = st.columns(3, gap="large")

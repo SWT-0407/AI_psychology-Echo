@@ -446,6 +446,14 @@ def build_answer_model(char: Dict[str, Any]) -> Dict[str, Any]:
     inner_trace = _compact_parts([family, key_events, unfinished], limit=3)
     time_sensitivity = _compact_parts([day_night, recent_state, residue], limit=3)
     desire_signal = _compact_parts([desire], limit=1)
+    human_texture = _compact_parts([
+        occupation,
+        city,
+        daily_rhythm,
+        recent_state,
+        f"防御方式是{defense}" if defense else "",
+        f"亲近时{affection}" if affection else "",
+    ], limit=5)
 
     if boundary_signal == "边界风险偏高":
         reply_strategy = "先帮用户辨认事实和边界，不急着下恋爱结论。"
@@ -469,6 +477,7 @@ def build_answer_model(char: Dict[str, Any]) -> Dict[str, Any]:
         "reply_cadence": reply_cadence,
         "time_sensitivity": time_sensitivity,
         "desire_signal": desire_signal,
+        "human_texture": human_texture,
         "defense_mechanism": defense,
         "affection_style": affection,
         "core_need": core_need,
@@ -550,7 +559,14 @@ def update_companion_state(
     char.setdefault("memory", [])
     char.setdefault("relationship", {})
     char.setdefault("emotion_state", {})
-    char.setdefault("reply_habits", {"short_text": True, "avoid_ai_tone": True})
+    habits = char.setdefault("reply_habits", {})
+    if not isinstance(habits, dict):
+        habits = {"short_text": True, "avoid_ai_tone": True}
+        char["reply_habits"] = habits
+    habits.setdefault("short_text", True)
+    habits.setdefault("avoid_ai_tone", True)
+    habits.setdefault("persona_slang", True)
+    habits.setdefault("realistic_texture", True)
     char.setdefault("persona_profile", {})
 
     intimacy_gain = 1
@@ -616,7 +632,7 @@ def create_character(
         "identity": identity.strip() or "朋友",
         "age": age.strip(),
         "personality": personality.strip() or "温柔、耐心、愿意认真陪伴聊天。",
-        "speaking_style": speaking_style.strip() or "自然、像微信聊天一样简短亲近。",
+        "speaking_style": speaking_style.strip() or "自然、像微信聊天一样简短亲近，偶尔带一点符合人设的网络流行语。",
         "pinned": False,
         "unread": 1,
         "intimacy": 0,
@@ -626,7 +642,12 @@ def create_character(
         "persona_profile": {},
         "emotional_residue": {},
         "memory": [],
-        "reply_habits": {"short_text": True, "avoid_ai_tone": True},
+        "reply_habits": {
+            "short_text": True,
+            "avoid_ai_tone": True,
+            "persona_slang": True,
+            "realistic_texture": True,
+        },
         "last_active": now_iso(),
         "last_read_at": "",
         "created_at": now_iso(),
@@ -665,6 +686,28 @@ def save_companion_messages(character_id: str, messages: List[Dict[str, Any]]) -
     write_json(companion_chat_path(character_id), messages)
 
 
+def _query_value(name: str) -> str:
+    value = st.query_params.get(name, "")
+    if isinstance(value, list):
+        return str(value[0] if value else "")
+    return str(value or "")
+
+
+def _restore_context_from_query() -> None:
+    if _query_value("_local_mode") == "1":
+        st.session_state.skipped_login = True
+        if not st.session_state.get("user_id"):
+            st.session_state.user_id = "local_user"
+
+    app_page = _query_value("_app_page")
+    if app_page in {"home", "psytest", "treehole", "companion", "profile"}:
+        st.session_state.page = app_page
+
+    diary_stage = _query_value("_diary_stage")
+    if diary_stage:
+        st.session_state.diary_stage = diary_stage
+
+
 def init_runtime_state() -> None:
     ensure_dirs()
     st.session_state.setdefault("is_logged_in", False)
@@ -681,6 +724,7 @@ def init_runtime_state() -> None:
     st.session_state.setdefault("diary_moods", load_moods())
     st.session_state.setdefault("diary_history_page", 0)
     st.session_state.setdefault("selected_history_id", None)
+    _restore_context_from_query()
     st.session_state.setdefault("psy_messages", [
         make_message("assistant", "你好，我是 Echo。你可以像写日记一样告诉我今天发生了什么，我会慢慢陪你梳理。")
     ])

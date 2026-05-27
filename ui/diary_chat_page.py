@@ -34,6 +34,29 @@ TEMPLATE_FILES = {
     "chat": "chat.jpg",
 }
 
+CALENDAR_MOOD_OPTIONS = [
+    ("", "不填写"),
+    ("😊", "开心"),
+    ("🙂", "还好"),
+    ("😌", "放松"),
+    ("🥰", "被爱"),
+    ("🤗", "暖暖"),
+    ("😐", "平平"),
+    ("🙃", "小乱"),
+    ("😶", "空白"),
+    ("😴", "困困"),
+    ("😢", "想哭"),
+    ("😡", "生气"),
+    ("😰", "焦虑"),
+    ("🥺", "委屈"),
+    ("😳", "害羞"),
+    ("🤔", "思考"),
+    ("☀️", "晴天"),
+    ("🌧️", "小雨"),
+    ("🌈", "彩虹"),
+    ("🌙", "晚安"),
+]
+
 
 DIARY_CSS = """
 <style>
@@ -585,8 +608,17 @@ DIARY_CSS = """
 .calendar-modal-shade:target {
     display: flex;
 }
+.calendar-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    display: block;
+}
 .calendar-modal {
-    width: min(430px, 88vw);
+    position: relative;
+    z-index: 1;
+    width: min(560px, 92vw);
+    max-height: min(78vh, 640px);
+    overflow-y: auto;
     padding: 18px 20px 20px;
     border: 2px solid rgba(168, 101, 116, .86);
     border-radius: 20px;
@@ -597,21 +629,40 @@ DIARY_CSS = """
     pointer-events: auto;
 }
 .calendar-modal-title {
-    font-size: 17px;
+    font-size: clamp(17px, 1.5vw, 21px);
     font-weight: 900;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
+}
+.calendar-field-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 6px;
+}
+.calendar-field-title {
+    font-weight: 900;
+}
+.calendar-field-hint {
+    color: rgba(122, 83, 96, .68);
+    font-size: 13px;
+    font-weight: 750;
+    text-align: right;
 }
 .calendar-emoji-row {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
     gap: 8px;
-    margin: 8px 0 14px;
+    margin: 8px 0 16px;
 }
 .calendar-emoji-row label {
-    display: inline-flex;
+    display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: 34px;
+    gap: 2px;
+    min-height: 48px;
+    padding: 4px 6px;
     border: 2px solid rgba(198, 148, 157, .52);
     border-radius: 12px;
     background: rgba(255, 255, 255, .72);
@@ -619,15 +670,36 @@ DIARY_CSS = """
     cursor: pointer;
     user-select: none;
     pointer-events: auto;
+    transition: transform .12s ease, border-color .12s ease, background .12s ease, box-shadow .12s ease;
 }
 .calendar-emoji-row label:hover {
     border-color: rgba(224, 106, 132, .9);
     background: #fff;
+    transform: translateY(-1px);
 }
 .calendar-emoji-row label:has(input:checked) {
     border-color: #ef6f8f;
     background: #ffe6ee;
     box-shadow: 0 0 0 2px rgba(239, 111, 143, .18);
+}
+.calendar-emoji-glyph {
+    font-size: 21px;
+    line-height: 1;
+}
+.calendar-emoji-name {
+    width: 100%;
+    color: #7a5360;
+    font-size: 12px;
+    line-height: 1.05;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.calendar-emoji-none .calendar-emoji-glyph {
+    color: #8d6974;
+    font-size: 15px;
+    font-weight: 950;
 }
 .calendar-emoji-row input {
     position: absolute;
@@ -666,6 +738,11 @@ DIARY_CSS = """
     align-items: center;
     justify-content: center;
     pointer-events: auto;
+}
+.calendar-modal-actions button:hover,
+.calendar-modal-actions a:hover {
+    border-color: rgba(224, 106, 132, .88);
+    background: #fff6f8;
 }
 .tpl-mood-entry .entry-emoji {
     font-size: clamp(18px, 2.15vw, 30px);
@@ -903,100 +980,15 @@ div[data-testid="stForm"]:has(#calendar-editor-anchor) .stButton > button {
     min-height: 36px;
     border-radius: 14px !important;
 }
-div[data-testid="stForm"]:has(#diary-entry-form-anchor) {
-    position: relative;
-    width: min(1101px, calc(100vw - 72px));
-    aspect-ratio: 1475 / 670;
-    margin: 0 auto 14px auto;
-    padding: 0 !important;
-    border: 0 !important;
-    background-repeat: no-repeat !important;
-    background-position: center top !important;
-    background-size: 100% 100% !important;
-    box-shadow: none !important;
-    overflow: hidden;
+div[data-testid="stChatInput"] {
+    width: min(1100px, calc(100vw - 72px));
+    margin: 14px auto 18px;
 }
-div[data-testid="stForm"]:has(#diary-entry-form-anchor) [data-testid="stVerticalBlock"] {
-    gap: 0 !important;
-}
-div[data-testid="stForm"]:has(#diary-entry-form-anchor) label {
-    display: none !important;
-}
-div[data-testid="stForm"]:has(#diary-entry-form-anchor) [data-testid="stTextArea"] {
-    position: absolute;
-    left: 12.2%;
-    top: 31.5%;
-    width: 35.8%;
-    z-index: 5;
-}
-div[data-testid="stForm"]:has(#diary-entry-form-anchor) textarea {
-    height: calc(min(454px, calc((100vw - 72px) * 670 / 1475)) * .39) !important;
-    min-height: 168px !important;
-    resize: none !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
+div[data-testid="stChatInput"] textarea {
+    border: 2px solid #d09aa8 !important;
+    border-radius: 14px !important;
+    background: #fffdfc !important;
     color: #57434b !important;
-    font-family: "KaiTi", "STKaiti", "Microsoft YaHei", cursive !important;
-    font-size: clamp(16px, 1.5vw, 21px) !important;
-    line-height: 1.78 !important;
-    padding: 0 8px !important;
-    caret-color: #ef3f55 !important;
-}
-div[data-testid="stForm"]:has(#diary-entry-form-anchor) textarea::placeholder {
-    color: rgba(152, 113, 123, .38) !important;
-}
-div[data-testid="stForm"]:has(#diary-entry-form-anchor) div[data-testid="stFormSubmitButton"] {
-    position: absolute;
-    left: 42%;
-    top: 75.8%;
-    width: 8.5%;
-    z-index: 7;
-}
-div[data-testid="stForm"]:has(#diary-entry-form-anchor) div[data-testid="stFormSubmitButton"] button,
-.diary-flip-control .stButton > button {
-    border: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    color: #ef3f55 !important;
-    font-size: clamp(18px, 2.2vw, 34px) !important;
-    font-weight: 950 !important;
-    padding: 0 !important;
-    min-height: auto !important;
-}
-.diary-right-reply {
-    position: absolute;
-    left: 57.4%;
-    top: 25.8%;
-    width: 33.4%;
-    height: 45%;
-    overflow: hidden;
-    z-index: 4;
-    color: #4b5666;
-    font-size: clamp(16px, 1.5vw, 21px);
-    line-height: 1.78;
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-family: "KaiTi", "STKaiti", "Microsoft YaHei", cursive;
-}
-.diary-flip-link {
-    position: absolute;
-    left: 84.2%;
-    top: 74.8%;
-    z-index: 8;
-    color: #ef3f55 !important;
-    font-size: clamp(18px, 2.2vw, 34px);
-    font-weight: 950;
-    text-decoration: none !important;
-    font-family: "Microsoft YaHei", sans-serif;
-}
-.diary-flip-control {
-    position: fixed;
-    left: calc(50vw + min(1101px, calc(100vw - 72px)) * .34);
-    top: calc(1rem + min(500px, calc((100vw - 72px) * 670 / 1475)) * .75);
-    z-index: 25;
-    width: calc(min(1101px, calc(100vw - 72px)) * .12);
 }
 .diary-action-row {
     display: grid;
@@ -1023,24 +1015,25 @@ div[data-testid="stForm"]:has(#diary-entry-form-anchor) div[data-testid="stFormS
         top: 42vh;
         width: 70vw;
     }
-    div[data-testid="stForm"]:has(#diary-entry-form-anchor) {
-        position: static;
-        width: 100%;
-        margin-top: 8px;
+    .calendar-modal {
+        width: min(94vw, 520px);
+        padding: 16px;
     }
-    div[data-testid="stForm"]:has(#diary-entry-form-anchor) [data-testid="stTextArea"],
-    div[data-testid="stForm"]:has(#diary-entry-form-anchor) div[data-testid="stFormSubmitButton"],
-    .diary-right-reply,
-    .diary-flip-link {
-        position: static;
-        width: auto;
-        height: auto;
-        margin: 10px 16px;
+    .calendar-field-row {
+        display: block;
     }
-    .diary-flip-control {
-        position: static;
-        width: 100%;
-        margin-bottom: 12px;
+    .calendar-field-hint {
+        display: block;
+        margin-top: 2px;
+        text-align: left;
+    }
+    .calendar-emoji-row {
+        grid-template-columns: repeat(auto-fit, minmax(66px, 1fr));
+        gap: 7px;
+    }
+    .calendar-emoji-row label {
+        min-height: 46px;
+        padding-inline: 4px;
     }
     .diary-action-row {
         grid-template-columns: 1fr;
@@ -1309,7 +1302,6 @@ def render_calendar() -> None:
     _consume_calendar_save(year, month)
 
     if _template_path("calendar"):
-        options = ["", "😊", "🙂", "😐", "😕", "😢", "😡", "😴", "🥰", "🌧️", "🌈"]
         cal_for_overlay = calendar.Calendar(firstweekday=6)
         weeks_for_overlay = cal_for_overlay.monthdayscalendar(year, month)
         overlay_parts = []
@@ -1339,22 +1331,34 @@ def render_calendar() -> None:
                     )
 
                 radios = []
-                for option in options:
-                    label = "不填写" if option == "" else option
+                for option, label in CALENDAR_MOOD_OPTIONS:
                     checked = " checked" if option == entry["emoji"] or (option == "" and not entry["emoji"]) else ""
-                    radios.append(f'<label><input type="radio" name="mood_emoji" value="{escape(option)}"{checked}> {escape(label)}</label>')
+                    label_class = "calendar-emoji-choice calendar-emoji-none" if option == "" else "calendar-emoji-choice"
+                    glyph = "无" if option == "" else escape(option)
+                    radios.append(
+                        f'<label class="{label_class}" title="{escape(label)}">'
+                        f'<input type="radio" name="mood_emoji" value="{escape(option)}"{checked}>'
+                        f'<span class="calendar-emoji-glyph">{glyph}</span>'
+                        f'<span class="calendar-emoji-name">{escape(label)}</span>'
+                        f'</label>'
+                    )
                 modal_parts.append(
                     f'<div class="calendar-modal-shade" id="{modal_id}">'
+                    f'<a class="calendar-modal-backdrop" href="#calendar" aria-label="关闭弹窗"></a>'
                     f'<form class="calendar-modal" method="get">'
+                    f'<input type="hidden" name="_local_mode" value="1">'
+                    f'<input type="hidden" name="_app_page" value="psytest">'
+                    f'<input type="hidden" name="_diary_stage" value="{month}">'
                     f'<input type="hidden" name="mood_day" value="{key}">'
                     f'<div class="calendar-modal-title">给 {month} 月 {day} 日贴一小格心情</div>'
-                    f'<div>心情</div><div class="calendar-emoji-row">{"".join(radios)}</div>'
+                    f'<div class="calendar-field-row"><span class="calendar-field-title">心情</span><span class="calendar-field-hint">选一个最贴近现在的感觉</span></div>'
+                    f'<div class="calendar-emoji-row">{"".join(radios)}</div>'
                     f'<label>小事件（30字内）</label>'
                     f'<input type="text" name="mood_event" value="{escape(entry["event"])}" maxlength="30" placeholder="今天发生的小事件...">'
                     f'<div class="calendar-modal-actions">'
-                    f'<button type="submit">保存</button>'
-                    f'<button type="submit" name="mood_clear" value="1">清空</button>'
-                    f'<a href="#calendar">返回</a>'
+                    f'<button type="submit">💾 保存</button>'
+                    f'<button type="submit" name="mood_clear" value="1">🧽 清空</button>'
+                    f'<a href="#calendar">↩ 返回</a>'
                     f'</div></form></div>'
                 )
 

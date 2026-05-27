@@ -74,15 +74,19 @@ def _transcribe_new_audio(scope: str, mm, audio_file) -> str:
     return text
 
 
-def render_multimodal_controls(scope: str) -> Dict[str, Any]:
+def render_multimodal_controls(scope: str, image_upload: bool = False) -> Dict[str, Any]:
     mm = get_multimodal_manager()
     state_key = f"{scope}_emotion_on"
     st.session_state.setdefault(state_key, False)
 
-    result: Dict[str, Any] = {"voice_text": "", "emotion": None}
-    cols = st.columns([1.4, 1, 2])
+    result: Dict[str, Any] = {"voice_text": "", "emotion": None, "image_file": None}
+    cols = st.columns([1.4, 0.34, 1, 2]) if image_upload else st.columns([1.4, 1, 2])
+    audio_col = cols[0]
+    image_col = cols[1] if image_upload else None
+    emotion_col = cols[2] if image_upload else cols[1]
+    status_col = cols[3] if image_upload else cols[2]
 
-    with cols[0]:
+    with audio_col:
         if hasattr(st, "audio_input"):
             audio_file = st.audio_input("语音输入", key=f"{scope}_audio_input")
             voice_clicked = False
@@ -94,7 +98,14 @@ def render_multimodal_controls(scope: str) -> Dict[str, Any]:
             )
             voice_clicked = st.button("🎤 本机麦克风", key=f"{scope}_voice_input", use_container_width=True)
 
-    with cols[1]:
+    if image_upload and image_col is not None:
+        with image_col:
+            if st.button("□", key=f"{scope}_image_toggle", help="发送图片"):
+                panel_key = f"{scope}_image_panel"
+                st.session_state[panel_key] = not st.session_state.get(panel_key, False)
+                st.rerun()
+
+    with emotion_col:
         emotion_on = st.toggle(
             "表情识别",
             value=st.session_state.get(state_key, False),
@@ -116,11 +127,21 @@ def render_multimodal_controls(scope: str) -> Dict[str, Any]:
     if st.session_state.get(state_key, False):
         result["emotion"] = mm.get_current_emotion()
         summary = emotion_summary(result["emotion"]) or "表情识别已开启"
-        with cols[2]:
+        with status_col:
             st.caption(f"当前表情：{summary}")
     else:
-        with cols[2]:
+        with status_col:
             st.caption("录音后自动识别；也可开启摄像头表情识别。")
+
+    if image_upload and st.session_state.get(f"{scope}_image_panel", False):
+        st.markdown('<div class="multimodal-image-panel">', unsafe_allow_html=True)
+        result["image_file"] = st.file_uploader(
+            "发送图片",
+            type=["png", "jpg", "jpeg", "webp"],
+            label_visibility="collapsed",
+            key=f"{scope}_image_upload",
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
 
     result["voice_text"] = _transcribe_new_audio(scope, mm, audio_file)
 

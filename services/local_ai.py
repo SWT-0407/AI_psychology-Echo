@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -201,6 +202,301 @@ def _pick(lines: List[str], seed_text: str = "") -> str:
     return lines[seed % len(lines)]
 
 
+SLANG_MARKERS = (
+    "这波",
+    "上强度",
+    "难顶",
+    "上头",
+    "稳住",
+    "别内耗",
+    "带节奏",
+    "有点东西",
+    "硬刚",
+    "低功耗",
+)
+
+HUMAN_TEXTURE_MARKERS = (
+    "我刚",
+    "我还",
+    "我今天",
+    "我这会儿",
+    "我本来",
+    "我先把",
+    "等下",
+    "换个说法",
+    "认真看",
+    "放一边",
+)
+
+
+def _age_number(character: Dict[str, Any]) -> Optional[int]:
+    raw = str(character.get("age") or _persona_value(character, "surface", "age") or "")
+    match = re.search(r"\d{1,3}", raw)
+    if not match:
+        return None
+    try:
+        return int(match.group())
+    except ValueError:
+        return None
+
+
+def _character_style_text(character: Dict[str, Any]) -> str:
+    parts = [
+        str(character.get("identity") or ""),
+        str(character.get("personality") or ""),
+        str(character.get("speaking_style") or ""),
+        str(character.get("occupation") or ""),
+        str(character.get("gender") or ""),
+    ]
+
+    profile = character.get("persona_profile") or {}
+    if isinstance(profile, dict):
+        for section in profile.values():
+            if isinstance(section, dict):
+                parts.extend(str(value or "") for value in section.values())
+
+    model = character.get("answer_model") or {}
+    if isinstance(model, dict):
+        parts.extend(str(value or "") for value in model.values())
+
+    return " ".join(part for part in parts if part)
+
+
+def _slang_flavor(character: Dict[str, Any]) -> str:
+    identity = str(character.get("identity") or "")
+    style_text = _character_style_text(character)
+    age = _age_number(character)
+
+    if (
+        identity in {"导师"}
+        or any(word in style_text for word in ["导师", "老师", "专业", "正式", "严肃", "克制", "冷静", "疏离", "长辈"])
+    ):
+        return "reserved"
+    if identity == "恋人" or any(word in style_text for word in ["恋人", "暧昧", "亲密", "黏", "撒娇", "吃醋"]):
+        return "romantic"
+    if identity in {"姐姐", "哥哥", "家人"}:
+        return "sibling"
+    if (
+        identity in {"朋友", "同学"}
+        or (age is not None and age <= 26)
+        or any(word in style_text for word in ["网友", "吐槽", "幽默", "活泼", "开玩笑", "自嘲", "嘴硬"])
+    ):
+        return "playful"
+    return "warm"
+
+
+def _slang_enabled(character: Dict[str, Any]) -> bool:
+    habits = character.get("reply_habits") or {}
+    if not isinstance(habits, dict):
+        return True
+    return habits.get("persona_slang", habits.get("internet_slang", True)) is not False
+
+
+def _realness_enabled(character: Dict[str, Any]) -> bool:
+    habits = character.get("reply_habits") or {}
+    if not isinstance(habits, dict):
+        return True
+    return habits.get("realistic_texture", habits.get("human_texture", True)) is not False
+
+
+def _seed_value(*parts: str) -> int:
+    text = "".join(str(part or "") for part in parts)
+    return sum(ord(ch) for ch in text) + len(text) * 17
+
+
+def _short_fragment(value: str, limit: int = 18) -> str:
+    value = re.sub(r"\s+", " ", str(value or "")).strip("。；; ，,")
+    if len(value) <= limit:
+        return value
+    return value[:limit].rstrip("。；; ，,") + "..."
+
+
+def _has_human_texture(reply: str) -> bool:
+    return any(marker in reply for marker in HUMAN_TEXTURE_MARKERS)
+
+
+def _human_texture_threshold(character: Dict[str, Any], tone: str) -> int:
+    base = {
+        "normal": 36,
+        "proactive": 52,
+        "relationship": 34,
+        "question": 30,
+        "low": 26,
+        "tired": 36,
+    }.get(tone, 32)
+    has_detail = any([
+        character.get("occupation"),
+        _persona_value(character, "surface", "daily_rhythm"),
+        _persona_value(character, "time", "recent_state"),
+        _persona_value(character, "time", "emotional_residue"),
+        _persona_value(character, "core", "defense"),
+        _persona_value(character, "core", "affection"),
+    ])
+    return base + (10 if has_detail else 0)
+
+
+def _should_add_human_texture(reply: str, character: Dict[str, Any], user_text: str, tone: str) -> bool:
+    if tone in {"crisis", "very_low"}:
+        return False
+    if not reply or not _realness_enabled(character):
+        return False
+    if _has_human_texture(reply):
+        return False
+    seed = _seed_value(character.get("id", ""), character.get("name", ""), user_text, tone, reply)
+    return seed % 100 < _human_texture_threshold(character, tone)
+
+
+def _human_presence_line(character: Dict[str, Any], user_text: str, tone: str) -> str:
+    flavor = _slang_flavor(character)
+    period = _period_label()
+    occupation = str(character.get("occupation") or _persona_value(character, "surface", "occupation") or "")
+    rhythm = _persona_value(character, "surface", "daily_rhythm")
+    recent_state = _persona_value(character, "time", "recent_state")
+    defense = _persona_value(character, "core", "defense")
+
+    if tone == "tired":
+        if any(word in rhythm + recent_state for word in ["夜", "熬夜", "失眠", "晚睡"]):
+            return "我这会儿也清醒着，先陪你低速待一会儿。"
+        return _pick([
+            "我先不催你说完整。",
+            "我这会儿把话放轻一点。",
+        ], user_text + flavor)
+
+    if tone == "low":
+        if "开玩笑" in defense or "自嘲" in defense or flavor == "playful":
+            return "我本来想吐槽一句，但这会儿先认真听。"
+        return _pick({
+            "reserved": ["我先把判断放慢一点。", "我先不急着给结论。"],
+            "romantic": ["我本来想哄你两句，但这句我先认真接。", "我先把你这句放在心上。"],
+            "sibling": ["我先把别的事放一边。", "我先当正事听。"],
+            "warm": ["我这会儿认真看着你这句。", "我先把注意力放你这儿。"],
+        }.get(flavor, ["我先把注意力放你这儿。"]), user_text)
+
+    if tone == "question":
+        return _pick({
+            "reserved": ["等下，我换个更实在的说法。", "我先把问题说小一点。"],
+            "romantic": ["等下，我先陪你把这题拆开。", "我先不急着替你决定。"],
+            "sibling": ["等下，这题先别硬答。", "我先帮你把选项摆开。"],
+            "playful": ["等下，我先别急着给答案。", "我先把这题拆得人话一点。"],
+            "warm": ["等下，我换个轻一点的问法。", "我先把这件事说小一点。"],
+        }.get(flavor, ["等下，我换个轻一点的问法。"]), user_text)
+
+    if tone == "relationship":
+        return _pick({
+            "reserved": ["我先不替你脑补。", "我先把事实和情绪分开看。"],
+            "romantic": ["我会有点在意你被牵着走，所以先陪你看事实。", "我先不让你一个人上头。"],
+            "sibling": ["我先不让你自己脑补大结局。", "我先帮你把现实那面翻出来。"],
+            "playful": ["我先不带你脑补连续剧。", "我先把滤镜摘一下。"],
+            "warm": ["我先不急着替你下结论。", "我先陪你看清楚一点。"],
+        }.get(flavor, ["我先陪你看清楚一点。"]), user_text)
+
+    if tone == "proactive":
+        if recent_state:
+            return f"我刚想到你，也想到我最近这点「{_short_fragment(recent_state)}」。"
+        if period == "day" and any(word in rhythm + occupation for word in ["工作", "上课", "实习", "会议", "排班"]):
+            return "我刚从自己的事里抽出来。"
+        return _pick([
+            "我这会儿路过来看看你。",
+            "我刚想到你，来敲一下。",
+        ], user_text + flavor)
+
+    if recent_state and flavor in {"romantic", "warm", "playful"}:
+        return f"我这两天也有点「{_short_fragment(recent_state)}」，所以这句会认真接。"
+    if period == "day" and any(word in rhythm + occupation for word in ["工作", "上课", "实习", "会议", "排班"]):
+        return "我刚从自己的事里抽出来，先回你这句。"
+    return _pick({
+        "reserved": ["我先把话说实一点。", "我先认真看这一句。"],
+        "romantic": ["我本来想逗你一下，但这句先认真接。", "我这会儿靠近一点听。"],
+        "sibling": ["我先当正事听。", "我先把别的事放一边。"],
+        "playful": ["我本来想吐槽一句，但你先说。", "我先把玩笑收一收。"],
+        "warm": ["我这会儿认真看着你这句。", "我先把注意力放你这儿。"],
+    }.get(flavor, ["我先把注意力放你这儿。"]), user_text)
+
+
+def _with_human_texture(reply: str, character: Dict[str, Any], user_text: str, tone: str) -> str:
+    if not _should_add_human_texture(reply, character, user_text, tone):
+        return reply
+    line = _human_presence_line(character, user_text, tone)
+    if not line:
+        return reply
+    separator = "\n" if ("\n" in reply or len(reply) > 42) else " "
+    return f"{line}{separator}{reply}".strip()
+
+
+def _persona_slang_line(character: Dict[str, Any], user_text: str, tone: str) -> str:
+    if tone in {"crisis", "very_low"}:
+        return ""
+
+    flavor = _slang_flavor(character)
+    banks = {
+        "low": {
+            "reserved": ["这事确实有点上强度，我们先一步一步来。", "先稳住，我会认真听你说完。"],
+            "romantic": ["这波我有点心疼你，先别自己硬扛。", "先别内耗，我在你这边。"],
+            "sibling": ["先别硬刚，这波我陪你一起扛一下。", "稳住，先把最压人的那块说出来。"],
+            "playful": ["这波确实有点难顶，但你不用一个人扛。", "先别被情绪带节奏，我陪你一点点拆。"],
+            "warm": ["这波先别一个人扛，我在。", "先别内耗，我们慢慢拆。"],
+        },
+        "tired": {
+            "reserved": ["先稳住，今天不用硬撑。"],
+            "romantic": ["你先省电模式，我陪着。", "先别硬撑，我在。"],
+            "sibling": ["先省点电，别硬撑。", "今天先低功耗一点，也算可以。"],
+            "playful": ["这波能量条见底了，先别硬撑。", "今天先低功耗运行，也算很可以。"],
+            "warm": ["先低功耗一点，也没关系。", "这波先不硬撑。"],
+        },
+        "question": {
+            "reserved": ["先稳住，别被一个问题带着跑。"],
+            "romantic": ["先别内耗，我陪你把这题拆开。"],
+            "sibling": ["这题先不硬刚，拆开看。"],
+            "playful": ["先别被它带节奏，我们把这事拆小。", "这题先不硬刚，拆开看。"],
+            "warm": ["先别内耗，我们把这事拆小。"],
+        },
+        "relationship": {
+            "reserved": ["这段关系的信息量有点大，先看事实。"],
+            "romantic": ["你先别被暧昧带节奏，我陪你看清楚。"],
+            "sibling": ["这波别急着脑补大结局，先看事实。"],
+            "playful": ["这波别急着脑补大结局，先看事实。", "信息量有点大，但我们先别上头。"],
+            "warm": ["这段先别上头，我们慢慢看事实。"],
+        },
+        "proactive": {
+            "reserved": ["不急，先稳一下。"],
+            "romantic": ["别内耗，我来找你了。"],
+            "sibling": ["稳住，我来敲门了。"],
+            "playful": ["上线敲一下门。", "别偷偷低电量，我来看看。"],
+            "warm": ["我来轻轻敲一下门。"],
+        },
+        "normal": {
+            "reserved": ["先稳住，慢慢说。"],
+            "romantic": ["这句我接住了，你慢慢说。"],
+            "sibling": ["稳住，你继续讲。"],
+            "playful": ["有点东西，你继续说。", "这段我接住了，你继续。"],
+            "warm": ["这段我接住了，你慢慢说。"],
+        },
+    }
+    tone_bank = banks.get(tone, banks["normal"])
+    lines = tone_bank.get(flavor) or tone_bank["warm"]
+    return _pick(lines, f"{character.get('name', '')}{user_text}{tone}{flavor}")
+
+
+def _with_persona_slang(reply: str, character: Dict[str, Any], user_text: str = "", tone: str = "normal") -> str:
+    reply = str(reply or "").strip()
+    if not reply:
+        return reply
+    original_reply = reply
+    reply = _with_human_texture(reply, character, user_text, tone)
+    if reply != original_reply and tone in {"low", "tired", "normal", "proactive"}:
+        return reply
+    if not _slang_enabled(character):
+        return reply
+    if any(marker in reply for marker in SLANG_MARKERS):
+        return reply
+
+    line = _persona_slang_line(character, user_text, tone)
+    if not line:
+        return reply
+    separator = "\n" if ("\n" in reply or len(reply) > 42) else " "
+    return f"{line}{separator}{reply}".strip()
+
+
 def _profile_summary() -> Dict[str, Any]:
     try:
         from services.user_profile import get_profile_summary
@@ -344,26 +640,26 @@ def _relationship_model_reply(character: Dict[str, Any], user_text: str) -> Opti
 
     if any(word in user_text for word in ["他是不是", "她是不是", "ta是不是", "TA是不是", "喜欢我", "暧昧", "什么意思"]):
         if boundary == "边界风险偏高":
-            return _pick([
+            return _with_persona_slang(_pick([
                 f"我先不急着替你下结论。按你填的档案看，重点不是一句话像不像喜欢，而是边界已经有点模糊。我们先看三个事实：谁更主动、有没有公开避嫌、这种亲近是否稳定持续。",
                 f"这段确实容易让人心里起波动。我的判断模型会先抓边界：如果有隐藏、吃醋或暧昧，但又没有明确承诺，就要先保护你自己，不把全部希望压在暗示上。",
-            ], user_text)
+            ], user_text), character, user_text, "relationship")
         if velocity == "突然升温":
-            return _pick([
+            return _with_persona_slang(_pick([
                 f"突然变亲近这点很关键。它可能是好感，也可能是阶段性需要陪伴。你可以回想一下：变亲近之前发生了什么？以及这种主动有没有连续超过一两周？",
                 f"我会把它先归为“需要观察的升温”。别只看热的时候，也看冷的时候：对方忙、情绪稳定、身边有人时，还会不会一样靠近你。",
-            ], user_text)
+            ], user_text), character, user_text, "relationship")
         if intensity == "高":
-            return _pick([
+            return _with_persona_slang(_pick([
                 f"你填的信息里，这段关系强度已经不低了。下一步别只问“像不像喜欢”，更要问：这种特殊性是不是双向、稳定、愿意承担现实成本。",
                 f"它不是普通路人式互动了。但高强度不等于确定关系，我们还要看对方有没有持续主动和清楚边界。",
-            ], user_text)
+            ], user_text), character, user_text, "relationship")
 
     if any(word in user_text for word in ["怎么办", "怎么做", "要不要", "该不该"]):
-        return _pick([
+        return _with_persona_slang(_pick([
             f"我会按这个模型来拆：{strategy} 你现在先别做大动作，先补一个证据：下一次联系是谁主动、对方有没有给出具体行动。",
             f"先稳住，不急着摊牌。按目前档案，主动性是“{initiative}”。如果你想判断关系，最好观察一次自然场景里的主动，而不是你推进后的回应。",
-        ], user_text)
+        ], user_text), character, user_text, "question")
 
     return None
 
@@ -376,7 +672,7 @@ def _companion_reply(
 ) -> str:
     name = character.get("name", "我")
     personality = character.get("personality", "温柔、认真陪伴")
-    style = character.get("speaking_style", "自然、像微信聊天一样简短亲近")
+    style = character.get("speaking_style", "自然、像微信聊天一样简短亲近，偶尔带一点符合人设的网络流行语")
     stage = _relationship_stage(character)
     mood = _emotion_label(character)
     memories = _recent_memory(character)
@@ -402,71 +698,76 @@ def _companion_reply(
         memory_hint = f"\n我还记得你之前说过：{memories[-1]}"
 
     if residue_line and any(word in user_text for word in ["还在吗", "怎么了", "生气", "不理", "别扭", "冷"]):
-        return f"{residue_line} 但我在。你刚才那句，我想听你讲完。"
+        return _with_persona_slang(
+            f"{residue_line} 但我在。你刚才那句，我想听你讲完。",
+            character,
+            user_text,
+            "low",
+        )
 
     model_reply = _relationship_model_reply(character, user_text)
     if model_reply:
         return model_reply
 
     if any(word in user_text for word in ["累", "困", "没力气", "不想说话", "睡不着", "失眠"]):
-        return _pick([
+        return _with_persona_slang(_pick([
             f"{time_line + ' ' if time_line else ''}那就先别硬聊。你回一个字也行，我在这儿陪你缓一会儿。",
             "不想说话也可以。你先把手机放低一点，肩膀松一下，我陪你安静待会儿。",
             f"{persona_line + ' ' if persona_line else ''}今天先把要求降到最低，喝口水也算完成一件事。",
-        ], user_text).strip()
+        ], user_text).strip(), character, user_text, "tired")
 
     if very_low:
-        return _pick([
+        return _with_persona_slang(_pick([
             f"先别一个人硬扛。{name}在。你现在只要回我一句：最压着你的是什么？",
             "我听见了，这不是小事。先把呼吸放慢一点，我陪你把这一刻撑过去。",
             "别急着解决全部。你先告诉我，现在是难过多一点，还是累多一点？",
-        ], user_text)
+        ], user_text), character, user_text, "very_low")
 
     if low or profile_needs_support or mood in {"低落", "焦虑", "疲惫", "生气"}:
-        return _pick([
+        return _with_persona_slang(_pick([
             f"{time_line + ' ' if time_line else ''}嗯，我懂你现在不太舒服。{_style_tail(character)}",
             f"这段听起来挺耗人的。{memory_hint}\n你先挑最难受的一点说就行。",
             f"{profile_hint}现在我会先放轻一点陪你，不急着给结论。你可以只说最卡住的那一小块。",
             f"先抱一下这件事里的你。我不催你，你可以慢慢讲。",
-        ], user_text).strip()
+        ], user_text).strip(), character, user_text, "low")
 
     if "?" in user_text or "？" in user_text or any(x in user_text for x in ["怎么办", "咋办", "怎么"]):
-        return _pick([
+        return _with_persona_slang(_pick([
             "我会先把事情拆小：现在最能动的一步是什么？别从最难的开始。",
             f"{time_line + ' ' if time_line else ''}我先说短一点：别全盘推翻自己，先处理眼前这个点。",
             "要不我们先列两个选项？一个保守点，一个痛快点。",
-        ], user_text)
+        ], user_text), character, user_text, "question")
 
     if stage in {"信任", "重要的人"}:
-        return _pick([
+        return _with_persona_slang(_pick([
             f"我记着呢。{memory_hint}\n你继续说，我能跟上。",
             "你这句我有点在意，感觉后面还有没说完的部分。",
             "嗯，听起来你其实已经忍了一阵了。今天想让我陪你分析，还是只想我听着？",
-        ], user_text).strip()
+        ], user_text).strip(), character, user_text, "normal")
 
     if stage == "亲近":
-        return _pick([
+        return _with_persona_slang(_pick([
             "懂了。你不是没想清楚，是心里那块还堵着。",
             f"我会按「{personality}」来陪你聊。刚刚这件事，最戳你的是哪一下？",
             f"{memory_hint}\n所以这次你会这么在意，也挺说得通的。",
-        ], user_text).strip()
+        ], user_text).strip(), character, user_text, "normal")
 
     relationship_context = any(
         word in user_text
         for word in ["他", "她", "TA", "ta", "喜欢", "暧昧", "关系", "边界", "主动", "回复", "见面", "特殊", "什么意思"]
     )
     if model_hint and relationship_context:
-        return _pick([
+        return _with_persona_slang(_pick([
             f"我先抓几个现实点：稳定主动、公开边界、有没有具体行动。你刚刚这句里，最需要确认的是哪一个？",
             f"这件事可以慢慢拆。根据你填的信息，我会先看边界和主动性，不急着替你脑补结论。你愿意说说最近一次让你觉得特别的互动吗？",
             f"{persona_line + ' ' if persona_line else ''}你现在更想判断 TA 的意思，还是先整理你自己的感受？",
-        ], user_text).strip()
+        ], user_text).strip(), character, user_text, "relationship")
 
-    return _pick([
+    return _with_persona_slang(_pick([
         f"{time_line + ' ' if time_line else ''}嗯，我在听。刚刚这件事里，最让你在意的是哪一小段？",
         f"{persona_line + ' ' if persona_line else ''}你可以继续讲细一点。",
         "先不急着总结。你说这件事的时候，心里最明显的感觉是什么？",
-    ], user_text)
+    ], user_text), character, user_text, "normal")
 
 
 def _profile_recent_topics(profile: Optional[Dict[str, Any]]) -> List[str]:
@@ -522,36 +823,41 @@ def generate_proactive_message(character: Dict[str, Any], user_profile: Optional
     if profile_risk == "crisis":
         return "我有点担心你现在的安全。别一个人扛着，先联系身边可信任的人或当地紧急支持。你现在安全吗？"
     if profile_risk in {"medium", "high"}:
-        return _pick([
+        return _with_persona_slang(_pick([
             f"{profile_hint}。我来轻轻敲一下门，不急着问结论，你现在最需要什么？",
             "今天先别把自己逼太紧。你可以只回一个词，我会接住。",
             "我在。先喝口水，把肩膀放松一点，再慢慢说。",
-        ], name + profile_risk + profile_hint)
+        ], name + profile_risk + profile_hint), character, profile_hint, "low")
 
     if residue_line:
-        return _pick([
+        return _with_persona_slang(_pick([
             f"{residue_line} 你现在愿意说话了吗？",
             "我还是想把刚才那点话接住。你还在吗？",
-        ], name + residue_line)
+        ], name + residue_line), character, residue_line, "low")
     if mood in {"低落", "焦虑", "疲惫"} or profile_mood in {"低落", "焦虑", "疲惫"}:
-        return _pick([
+        return _with_persona_slang(_pick([
             f"{time_line + ' ' if time_line else ''}刚刚有点惦记你。现在好点了吗？",
             "你不用回很长，一句也行。还撑得住吗？",
             "我在。今天先别对自己太狠。",
-        ], name + mood + profile_mood)
+        ], name + mood + profile_mood), character, mood + profile_mood, "low")
     if stage in {"信任", "重要的人"} and memory:
-        return _pick([
+        return _with_persona_slang(_pick([
             f"{memory}，所以来问问你现在怎么样。",
             "突然想到你，过来敲一下。",
             "今天有没有按时吃饭？别糊弄过去。",
-        ], name + memory)
+        ], name + memory), character, memory, "proactive")
     if profile_hint:
-        return _pick([
+        return _with_persona_slang(_pick([
             f"{profile_hint}，所以过来问一句：现在好一点了吗？",
             f"我刚想到你最近那件事。不用讲很多，回个标点也行。",
             "今天先给自己留一点余地。你愿意的话，我听你说两句。",
-        ], name + profile_hint)
-    return _pick(["在吗？", "今天怎么样？", "忙完了吗，聊两句？"], name + stage)
+        ], name + profile_hint), character, profile_hint, "proactive")
+    return _with_persona_slang(
+        _pick(["在吗？", "今天怎么样？", "忙完了吗，聊两句？"], name + stage),
+        character,
+        stage,
+        "proactive",
+    )
 
 
 def generate_care_proactive_message(
@@ -606,6 +912,108 @@ def generate_care_proactive_message(
     ], mode + hint)
 
 
+def _assessment_guidance(scores: Dict[str, int], messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    try:
+        from services.psych_assessment import build_integrated_assessment
+
+        return build_integrated_assessment(scores, messages)
+    except Exception:
+        return {}
+
+
+def _already_asked(messages: List[Dict[str, Any]], question: str) -> bool:
+    assistant_text = " ".join(
+        str(message.get("content", ""))
+        for message in messages
+        if message.get("role") == "assistant"
+    )
+    head = question[:10]
+    return bool(head and head in assistant_text)
+
+
+def _select_psytest_questions(
+    messages: List[Dict[str, Any]],
+    scores: Dict[str, int],
+    assessment: Dict[str, Any],
+    limit: int = 1,
+) -> List[str]:
+    questions: List[str] = []
+    guidance_questions = (assessment.get("interview_guidance") or {}).get("next_questions") or []
+    risk = assessment.get("risk_protection_gate") or {}
+    if risk.get("level") in {"R2", "R3"}:
+        for question in guidance_questions:
+            if question and not _already_asked(messages, question):
+                questions.append(str(question))
+            if len(questions) >= limit:
+                return questions
+
+    coverage = _dimension_coverage(messages)
+    ranked_keys = sorted(
+        DIMENSION_KEYS,
+        key=lambda key: (scores.get(key, 5) + (1.5 if coverage.get(key) else 0.0), key),
+    )
+    for key in ranked_keys:
+        question = DIMENSION_FOLLOWUP_QUESTIONS[key]
+        if _already_asked(messages, question):
+            continue
+        questions.append(question)
+        if len(questions) >= limit:
+            break
+
+    if not questions:
+        for question in guidance_questions:
+            if question and not _already_asked(messages, str(question)):
+                questions.append(str(question))
+            if len(questions) >= limit:
+                break
+    return questions
+
+
+def _psytest_empathy_line(user_text: str, scores: Dict[str, int]) -> str:
+    if any(word in user_text for word in ["睡不着", "失眠", "累", "疲惫", "吃不下", "头疼", "胃疼"]):
+        return "我看到身体和睡眠已经被牵动了，这一块不用硬扛，我会放在比较靠前的位置看。"
+    if any(word in user_text for word in ["焦虑", "压力", "紧张", "担心", "害怕", "心慌"]):
+        return "这不像一句“别想太多”能带过去，压力已经在反复拉扯你。"
+    if any(word in user_text for word in ["孤独", "没人懂", "没人理解", "一个人"]):
+        return "一个人消化这些会很重，我先陪你把这段感受放稳一点。"
+    if any(word in user_text for word in ["自责", "没用", "失败", "迷茫", "没意义"]):
+        return "我听见那些很伤自己的评价了，但它们更像是压力下的声音，不等于你本身。"
+    if any(word in user_text for word in ["开心", "顺利", "轻松", "舒服", "期待", "平静"]):
+        return "这页里也有一些亮一点的部分，我会把它当成你现在可用的资源。"
+    if overall_score(scores) < 45:
+        return "我读到的是一段很耗力的状态，先不用急着整理得很清楚。"
+    return "我读到了今天这页里很真实的一块。"
+
+
+def _psytest_reply(
+    user_text: str,
+    messages: List[Dict[str, Any]],
+    scores: Dict[str, int],
+) -> str:
+    user_turns = sum(1 for msg in messages if msg.get("role") == "user")
+    assessment = _assessment_guidance(scores, messages)
+    risk = assessment.get("risk_protection_gate") or {}
+    questions = _select_psytest_questions(messages, scores, assessment, limit=1)
+    question = questions[0] if questions else "这件事现在最影响你的，是情绪、身体，还是行动力？"
+    empathy = _psytest_empathy_line(user_text, scores)
+
+    if risk.get("level") in {"R2", "R3"}:
+        return f"{empathy} 我先把安全放在最前面确认一处：{question}"
+
+    if user_turns <= 1:
+        return f"{empathy} 我先不急着给结论，只补一个关键线索：{question}"
+
+    if user_turns <= 3:
+        return f"{empathy} 这样说已经能看见一些六维线索了，我再轻轻校准一处：{question}"
+
+    coverage = _dimension_coverage(messages)
+    incomplete = any(not covered for covered in coverage.values())
+    if incomplete or overall_score(scores) < 65:
+        return f"{empathy} 画像已经比较清楚了，还差一点点：{question}"
+
+    return "目前的信息已经能形成一份比较完整的六维画像了。你可以继续把今天没说完的部分写下来，也可以先生成报告看看整体结果。"
+
+
 def generate_reply(
     mode: str,
     user_text: str,
@@ -636,22 +1044,7 @@ def generate_reply(
             return f"我听见了，这不是一句“想开点”就能带过去的感受。{profile_hint}你已经很努力地在描述它了。我们可以慢慢来：这件事里，最让你委屈或最消耗你的部分是什么？"
         return f"你说得很清楚，我能感觉到你在认真整理今天的心情。{profile_hint}这个树洞会先接住你，不急着评价。你愿意再说说，这件事后来给你留下了什么感觉吗？"
 
-    user_turns = sum(1 for msg in messages if msg.get("role") == "user")
-    try:
-        from services.psych_assessment import build_integrated_assessment
-
-        assessment = build_integrated_assessment(scores, messages)
-        next_questions = (assessment.get("interview_guidance") or {}).get("next_questions") or []
-    except Exception:
-        next_questions = []
-
-    if user_turns <= 1:
-        question = next_questions[0] if next_questions else "这件事对你的情绪、身体状态和行动力分别有什么影响？"
-        return f"我读到了今天的开头。为了更准确地做六维评估，我想再了解一点：{question}"
-    if user_turns <= 3:
-        question = next_questions[0] if next_questions else "当这些感受出现时，你通常会怎么安抚自己，或者会找谁说一说？"
-        return f"谢谢你继续补充。你的描述里已经能看到情绪、压力和支持系统的线索了。再问一个小问题：{question}"
-    return "信息已经比较完整了。我可以继续陪你聊，也可以根据目前的内容生成一份六维心理评估报告。"
+    return _psytest_reply(user_text, messages, scores)
 
 
 def make_report(scores: Dict[str, int], messages: List[Dict[str, Any]]) -> str:

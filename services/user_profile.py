@@ -1,4 +1,5 @@
 import json
+import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,9 @@ USER_PROFILE_DIR = DATA_ROOT / "user_profile"
 USER_PROFILE_PATH = USER_PROFILE_DIR / "profile.json"
 EVENT_LIMIT = 80
 HISTORY_LIMIT = 40
+SIGNAL_LIMIT = 80
+SIGNAL_HALF_LIFE_DAYS = 7.0
+MIN_ACTIVE_SIGNAL_CONFIDENCE = 0.18
 
 DIMENSION_WEIGHTS = {
     "x1": 0.15,
@@ -89,6 +93,154 @@ def _short_text(text: str, length: int = 56) -> str:
     return text[:length].rstrip() + "..."
 
 
+def _parse_datetime(raw: Any) -> Optional[datetime]:
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        return dt.replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def _days_since(raw: Any) -> float:
+    dt = _parse_datetime(raw)
+    if not dt:
+        return 0.0
+    return max(0.0, (datetime.now() - dt).total_seconds() / 86400)
+
+
+def _decayed_confidence(confidence: Any, last_seen_at: Any) -> float:
+    try:
+        value = max(0.0, min(1.0, float(confidence)))
+    except (TypeError, ValueError):
+        value = 0.0
+    days = _days_since(last_seen_at)
+    return value * math.pow(0.5, days / SIGNAL_HALF_LIFE_DAYS)
+
+
+def _signal_id(category: str, label: str) -> str:
+    compact = re.sub(r"\s+", "", str(label or ""))
+    return f"{category}:{compact}"
+
+
+def _sanitize_evidence(text: str) -> str:
+    cleaned = _short_text(text, 72)
+    for word in HIGH_RISK_WORDS:
+        cleaned = cleaned.replace(word, "[高风险表达]")
+    return cleaned
+
+
+def _signal_store(profile: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    signals = profile.setdefault("signals", {})
+    if not isinstance(signals, dict):
+        signals = {}
+        profile["signals"] = signals
+    return signals
+
+
+def _active_signals(
+    profile: Dict[str, Any],
+    category: Optional[str] = None,
+    include_hidden: bool = False,
+    limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for signal_id, raw in _signal_store(profile).items():
+        if not isinstance(raw, dict):
+            continue
+        status = str(raw.get("status") or "active")
+        if not include_hidden and status != "active":
+            continue
+        if category and raw.get("category") != category:
+            continue
+        item = dict(raw)
+        item.setdefault("id", signal_id)
+        current = _decayed_confidence(item.get("confidence", 0), item.get("last_seen_at"))
+        item["current_confidence"] = round(current, 3)
+        if not include_hidden and current < MIN_ACTIVE_SIGNAL_CONFIDENCE:
+            continue
+        items.append(item)
+    items.sort(
+        key=lambda item: (
+            item.get("status") == "active",
+            float(item.get("current_confidence", 0)),
+            str(item.get("last_seen_at") or ""),
+        ),
+        reverse=True,
+    )
+    return items[:limit] if limit else items
+
+
+def _record_signal(
+    profile: Dict[str, Any],
+    category: str,
+    label: str,
+    mode: str,
+    evidence_text: str = "",
+    base_confidence: float = 0.35,
+) -> None:
+    label = str(label or "").strip()
+    if not label:
+        return
+    key = _signal_id(category, label)
+    signals = _signal_store(profile)
+    existing = signals.get(key) if isinstance(signals.get(key), dict) else {}
+    if existing.get("status") in {"hidden", "rejected"}:
+        return
+
+    now = _now_iso()
+    old_confidence = _decayed_confidence(existing.get("confidence", 0), existing.get("last_seen_at"))
+    new_confidence = min(0.96, old_confidence + base_confidence * (1.0 - old_confidence))
+    sources = [str(item) for item in existing.get("sources", []) if item]
+    if mode and mode not in sources:
+        sources.append(mode)
+
+    evidence_count = int(existing.get("evidence_count", 0) or 0) + 1
+    signals[key] = {
+        **existing,
+        "id": key,
+        "label": label,
+        "category": category,
+        "source_type": existing.get("source_type", "inferred"),
+        "confidence": round(new_confidence, 3),
+        "evidence_count": evidence_count,
+        "sources": sources[-6:],
+        "first_seen_at": existing.get("first_seen_at") or now,
+        "last_seen_at": now,
+        "last_evidence": _sanitize_evidence(evidence_text),
+        "status": "active",
+    }
+
+
+def _record_signals(
+    profile: Dict[str, Any],
+    labels: Iterable[str],
+    category: str,
+    mode: str,
+    evidence_text: str = "",
+    base_confidence: float = 0.35,
+) -> None:
+    for label in labels:
+        _record_signal(profile, category, label, mode, evidence_text, base_confidence)
+
+
+def _refresh_legacy_tags(profile: Dict[str, Any]) -> None:
+    labels: List[str] = []
+    for category in ["state", "topic", "emotion", "preference", "concern", "legacy"]:
+        labels.extend(item["label"] for item in _active_signals(profile, category=category, limit=5))
+    profile["tags"] = _unique_recent([], labels, limit=14)
+
+
+def _migrate_legacy_signals(profile: Dict[str, Any]) -> None:
+    if _signal_store(profile):
+        return
+    for label in profile.get("tags") or []:
+        _record_signal(profile, "legacy", str(label), "legacy", "旧版画像标签", 0.30)
+    for label in (profile.get("emotion") or {}).get("recent_topics") or []:
+        _record_signal(profile, "topic", str(label), "legacy", "旧版关注主题", 0.34)
+    for label in (profile.get("emotion") or {}).get("recent_keywords") or []:
+        _record_signal(profile, "emotion", str(label), "legacy", "旧版情绪关键词", 0.34)
+
+
 def _default_profile() -> Dict[str, Any]:
     now = _now_iso()
     return {
@@ -123,6 +275,15 @@ def _default_profile() -> Dict[str, Any]:
             "intimacy": 0,
         },
         "tags": [],
+        "signals": {},
+        "preferences": {
+            "reply_style": "温柔陪伴",
+            "reply_length": "适中",
+            "advice_mode": "先共情再建议",
+            "proactive_ok": True,
+            "multimodal_ok": False,
+            "avoid_topics": "",
+        },
         "risk": {"level": "low", "reasons": [], "updated_at": now},
         "integrated_assessment": {},
         "events": [],
@@ -141,6 +302,8 @@ def load_user_profile() -> Dict[str, Any]:
             merged.update(profile.get(key) if isinstance(profile.get(key), dict) else {})
             profile[key] = merged
     profile["user_id"] = _current_user_id()
+    _migrate_legacy_signals(profile)
+    _refresh_legacy_tags(profile)
     return profile
 
 
@@ -148,6 +311,7 @@ def save_user_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     profile["user_id"] = _current_user_id()
     profile["updated_at"] = _now_iso()
     profile.setdefault("created_at", profile["updated_at"])
+    _refresh_legacy_tags(profile)
     _write_json(USER_PROFILE_PATH, profile)
     st.session_state.user_profile = profile
     return profile
@@ -227,9 +391,10 @@ def _tags_from_scores(scores: Dict[str, Any], score: Optional[float]) -> List[st
 
 
 def _detect_risk(text: str, score: Optional[float]) -> Dict[str, Any]:
-    reasons = [word for word in HIGH_RISK_WORDS if word in text]
-    if reasons:
+    matched_high_risk = any(word in text for word in HIGH_RISK_WORDS)
+    if matched_high_risk:
         level = "high"
+        reasons = ["出现高风险表达"]
     elif score is not None and score <= 40:
         level = "medium"
         reasons = ["综合评分偏低"]
@@ -293,7 +458,8 @@ def update_profile_from_session(
     level = _level_name(score)
     topics = _find_matches(text, TOPIC_RULES)
     emotions = _find_matches(text, EMOTION_RULES)
-    tags = _tags_from_scores(scores, score) + topics + emotions
+    state_tags = _tags_from_scores(scores, score)
+    tags = state_tags + topics + emotions
     try:
         from services.psych_assessment import build_integrated_assessment
 
@@ -324,6 +490,14 @@ def update_profile_from_session(
             "functional_level": (integrated_assessment.get("functional_impairment") or {}).get("level"),
             "risk_level": (integrated_assessment.get("risk_protection_gate") or {}).get("level"),
         }
+        _record_signals(
+            profile,
+            integrated_assessment.get("main_concerns") or [],
+            "concern",
+            mode,
+            title or text,
+            0.38,
+        )
     if history and source_id and history[-1].get("source_id") == source_id:
         history[-1] = snapshot
     else:
@@ -338,6 +512,9 @@ def update_profile_from_session(
     if any(item in {"焦虑", "低落", "疲惫", "生气"} for item in emotions):
         emotion["negative_signal_count"] = int(emotion.get("negative_signal_count", 0) or 0) + 1
 
+    _record_signals(profile, topics, "topic", mode, text, 0.36)
+    _record_signals(profile, emotions, "emotion", mode, text, 0.42)
+    _record_signals(profile, state_tags, "state", mode, title or text, 0.34)
     profile["tags"] = _unique_recent(profile.get("tags", []), tags, limit=14)
     risk = _detect_risk(text, score)
     if integrated_assessment:
@@ -382,6 +559,7 @@ def update_profile_from_companion(
     )
 
     text = str(user_text or "")
+    topics = _find_matches(text, TOPIC_RULES)
     emotions = _find_matches(text, EMOTION_RULES)
     if emotion:
         label = emotion.get("emotion_cn") or emotion.get("emotion")
@@ -391,16 +569,71 @@ def update_profile_from_companion(
     if emotions:
         emotion_state["latest_label"] = emotions[-1]
         emotion_state["recent_keywords"] = _unique_recent(emotion_state.get("recent_keywords", []), emotions)
+    if topics:
+        emotion_state["recent_topics"] = _unique_recent(emotion_state.get("recent_topics", []), topics)
 
-    profile["tags"] = _unique_recent(profile.get("tags", []), ["偏好虚拟陪伴", identity] + emotions, limit=14)
+    preference_labels = ["偏好虚拟陪伴"]
+    if identity:
+        preference_labels.append(f"偏好{identity}式陪伴")
+    _record_signals(profile, topics, "topic", "companion", text, 0.32)
+    _record_signals(profile, emotions, "emotion", "companion", text, 0.38)
+    _record_signals(profile, preference_labels, "preference", "companion", text or assistant_text, 0.30)
+    profile["tags"] = _unique_recent(profile.get("tags", []), preference_labels + [identity] + topics + emotions, limit=14)
     _add_event(
         profile,
         "companion",
         "companion_interaction",
         summary=user_text or assistant_text,
         source_id=str(character.get("id") or ""),
-        extra={"character": companion["last_character"], "identity": identity},
+        extra={"character": companion["last_character"], "identity": identity, "topics": topics, "emotions": emotions},
     )
+    return save_user_profile(profile)
+
+
+def list_profile_signals(include_hidden: bool = False) -> List[Dict[str, Any]]:
+    """Return user-visible profile signals with decayed confidence."""
+    profile = load_user_profile()
+    return _active_signals(profile, include_hidden=include_hidden, limit=SIGNAL_LIMIT)
+
+
+def update_profile_signal_status(signal_id: str, status: str) -> Dict[str, Any]:
+    profile = load_user_profile()
+    signals = _signal_store(profile)
+    signal = signals.get(signal_id)
+    if not isinstance(signal, dict):
+        return profile
+    if status not in {"active", "hidden", "rejected"}:
+        status = "active"
+    signal["status"] = status
+    signal["user_reviewed_at"] = _now_iso()
+    signals[signal_id] = signal
+    return save_user_profile(profile)
+
+
+def delete_profile_signal(signal_id: str) -> Dict[str, Any]:
+    profile = load_user_profile()
+    _signal_store(profile).pop(signal_id, None)
+    return save_user_profile(profile)
+
+
+def update_profile_preferences(preferences: Dict[str, Any]) -> Dict[str, Any]:
+    profile = load_user_profile()
+    current = profile.setdefault("preferences", {})
+    allowed = {
+        "reply_style",
+        "reply_length",
+        "advice_mode",
+        "proactive_ok",
+        "multimodal_ok",
+        "avoid_topics",
+    }
+    for key, value in dict(preferences or {}).items():
+        if key in allowed:
+            current[key] = value
+    proactive = profile.setdefault("proactive", {})
+    if "proactive_ok" in current:
+        proactive["enabled"] = bool(current.get("proactive_ok"))
+    _add_event(profile, "basic", "profile_preferences_saved", "用户调整了画像偏好")
     return save_user_profile(profile)
 
 
@@ -412,6 +645,20 @@ def get_profile_summary() -> Dict[str, Any]:
     companion = profile.get("companion") or {}
     risk = profile.get("risk") or {}
     integrated = profile.get("integrated_assessment") or {}
+    topic_signals = _active_signals(profile, category="topic", limit=4)
+    emotion_signals = _active_signals(profile, category="emotion", limit=3)
+    visible_signals = [
+        item
+        for item in _active_signals(profile, limit=10)
+        if item.get("category") in {"state", "topic", "emotion", "preference", "concern", "legacy"}
+    ]
+    tag_labels = _unique_recent([], [item.get("label", "") for item in visible_signals], limit=8)
+    topic_labels = [item.get("label", "") for item in topic_signals] or list(emotion.get("recent_topics") or [])[-4:]
+    latest_emotion = (
+        emotion_signals[0].get("label")
+        if emotion_signals
+        else emotion.get("latest_label") or "暂无"
+    )
     return {
         "level": assessment.get("level") or "暂无评估",
         "overall_score": assessment.get("overall_score"),
@@ -419,9 +666,19 @@ def get_profile_summary() -> Dict[str, Any]:
         "concern_index": integrated.get("overall_index"),
         "functional_level": (integrated.get("functional_impairment") or {}).get("level", ""),
         "safety_gate_level": (integrated.get("risk_protection_gate") or {}).get("level", ""),
-        "latest_emotion": emotion.get("latest_label") or "暂无",
-        "recent_topics": list(emotion.get("recent_topics") or [])[-4:],
-        "tags": list(profile.get("tags") or [])[-6:],
+        "latest_emotion": latest_emotion,
+        "recent_topics": topic_labels[:4],
+        "tags": tag_labels[:6],
+        "signals": [
+            {
+                "id": item.get("id"),
+                "label": item.get("label"),
+                "category": item.get("category"),
+                "confidence": item.get("current_confidence"),
+            }
+            for item in visible_signals[:6]
+        ],
+        "preferences": profile.get("preferences") or {},
         "total_events": behavior.get("total_events", 0),
         "last_active_mode": behavior.get("last_active_mode", ""),
         "last_character": companion.get("last_character", ""),
@@ -438,6 +695,11 @@ def build_profile_context(max_chars: int = 240) -> str:
         f"关注主题：{'、'.join(summary['recent_topics']) or '暂无'}",
         f"画像标签：{'、'.join(summary['tags']) or '暂无'}",
     ]
+    preferences = summary.get("preferences") or {}
+    if preferences:
+        parts.append(
+            f"陪伴偏好：{preferences.get('reply_style', '温柔陪伴')}，{preferences.get('advice_mode', '先共情再建议')}"
+        )
     if summary.get("last_character"):
         parts.append(f"最近陪伴角色：{summary['last_character']}")
     return _short_text("；".join(parts), max_chars)

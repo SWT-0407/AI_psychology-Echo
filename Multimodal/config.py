@@ -32,12 +32,15 @@ QWEN_TTS_VOICE = "longxiaochun"            # 音色：longxiaochun（知性女�
 # {face_scale_desc} 会被替换为维度量表描述
 EMOTION_ANALYSIS_PROMPT = (
     "你是一位专业的面部情绪分析专家。图片可能是一位用户最近几帧人脸的横向拼图。"
-    "请综合多帧中的稳定表情，不要被眨眼、单帧模糊或短暂嘴型误导。\n\n"
+    "请综合多帧中的稳定表情，右侧/最后一帧代表最新状态，权重应更高。"
+    "不要被眨眼、单帧模糊或短暂嘴型误导，也不要把轻微但稳定的皱眉、嘴角下压、"
+    "眼睑下垂、紧绷或回避表情一律归为 neutral。\n\n"
     "请严格按照以下量表进行评分（0.0~1.0，保留两位小数）：\n"
     "{face_scale_desc}\n\n"
     "同时给出一个主情绪标签（必须从以下英文标签中选择）："
-    "happy, sad, angry, surprise, fear, disgust, neutral, contempt, anxious, tired\n"
-    "如果面部区域不清晰或无法判断，请将 confidence 设为 0.3 以下。\n\n"
+    "happy, sad, angry, surprise, fear, disgust, neutral, contempt, anxious, tired, unknown\n"
+    "只有在缺少明确表情线索时才选择 neutral；如果面部区域不清晰或无法判断，请选择 unknown，"
+    "并将 confidence 设为 0.3 以下。\n\n"
     "请只返回JSON格式：\n"
     "{{\"emotion\": \"标签英文\", \"emotion_cn\": \"标签中文\", "
     "\"valence\": 0.0, \"arousal\": 0.0, "

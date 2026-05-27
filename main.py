@@ -5,6 +5,7 @@ from services.storage_auth import render_login_page
 from ui.companion_page import render_companion_page
 from ui.diary_chat_page import render_psytest_diary
 from ui.home_page import render_home_page
+from ui.profile_page import render_profile_page
 from ui.treehole_page import render_treehole_page
 
 
@@ -42,5 +43,7 @@ elif page == "treehole":
     render_treehole_page()
 elif page == "companion":
     render_companion_page()
+elif page == "profile":
+    render_profile_page()
 else:
     render_home_page()

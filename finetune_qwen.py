@@ -23,7 +23,7 @@ from trl import SFTTrainer
 
 # ========== 配置 ==========
 BASE_MODEL = "Qwen/Qwen2.5-7B-Instruct"  # 或 Qwen/Qwen2.5-3B-Instruct（需要更少显存）
-DATA_PATH = "sft_data.jsonl"
+DATA_PATH = os.getenv("SFT_DATA_PATH", "data/finetune_ready/echo_sft_all.jsonl")
 OUTPUT_DIR = "./qwen_psychology_finetuned"
 USE_4BIT = True  # 启用 4-bit 量化，8GB 显存也能跑 7B 模型
 LORA_R = 16      # LoRA 秩
@@ -43,14 +43,19 @@ def load_dataset(path):
             data.append(json.loads(line.strip()))
     print(f"  共 {len(data)} 条训练数据")
     
-    # 转换为 Qwen 对话格式
+    # 转换为 Qwen 对话格式，兼容 messages 与 instruction/output 两种数据。
     formatted = []
     for item in data:
-        # Qwen2.5 的聊天模板格式
-        messages = [
-            {"role": "user", "content": item["instruction"]},
-            {"role": "assistant", "content": item["output"]}
-        ]
+        if "messages" in item:
+            messages = item["messages"]
+        else:
+            instruction = item.get("instruction", "")
+            input_text = item.get("input", "")
+            user_text = instruction if not input_text else f"{instruction}\n\n{input_text}"
+            messages = [
+                {"role": "user", "content": user_text},
+                {"role": "assistant", "content": item["output"]},
+            ]
         formatted.append({"messages": messages})
     return formatted
 
