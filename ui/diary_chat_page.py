@@ -19,6 +19,10 @@ from services.app_storage import (
     update_history_messages,
 )
 from services.local_ai import DIMENSIONS, generate_reply, make_report, score_messages
+from services.message_format import messages_to_readable_text, normalize_messages
+from services.proactive_engine import maybe_add_care_proactive
+from services.safety import assess_message_safety, attach_safety_metadata, make_safety_reply
+from ui.crisis_alert import queue_crisis_alert, render_crisis_alert_if_needed
 
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "assets" / "diary_templates"
@@ -382,6 +386,12 @@ DIARY_CSS = """
         linear-gradient(90deg, #edf0f2 1px, transparent 1px);
     background-size: 22px 22px;
 }
+.history-dialog {
+    padding-bottom: 42px;
+}
+.history-dialog .msg-stack {
+    max-width: min(72%, 760px);
+}
 .chat-paper:before {
     content: "⭐  🧦";
     position: absolute;
@@ -464,6 +474,10 @@ DIARY_CSS = """
     color: #6a4a52 !important;
     font-weight: 850 !important;
 }
+.stButton {
+    position: relative;
+    z-index: 35;
+}
 .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div {
     border: 2px solid #c6949d !important;
     border-radius: 10px !important;
@@ -478,9 +492,27 @@ DIARY_CSS = """
     position: relative;
     margin: 0 auto 14px auto;
 }
-.template-cover { aspect-ratio: 1178 / 884; }
-.template-intro { aspect-ratio: 1048 / 786; }
-.template-calendar { aspect-ratio: 1103 / 827; }
+.template-cover,
+.template-intro {
+    width: 100vw;
+    height: 100vh;
+    aspect-ratio: auto;
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    margin-top: -1rem;
+    margin-bottom: 0;
+    background-size: 100% 100%;
+}
+.template-calendar {
+    width: 100vw;
+    height: 100vh;
+    aspect-ratio: auto;
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    margin-top: -1rem;
+    margin-bottom: 0;
+    background-size: 100% 100%;
+}
 .template-history { aspect-ratio: 1093 / 819; }
 .template-chat { aspect-ratio: 1101 / 826; }
 .template-overlay {
@@ -490,6 +522,9 @@ DIARY_CSS = """
     width: 100%;
     height: 100%;
     pointer-events: none;
+}
+.template-overlay:has(.calendar-modal-shade:target) {
+    pointer-events: auto;
 }
 .tpl-text {
     position: absolute;
@@ -505,12 +540,166 @@ DIARY_CSS = """
     transform: translate(-50%, -50%);
     font-size: clamp(18px, 3vw, 34px);
 }
+.tpl-day-hotspot {
+    position: absolute;
+    display: block;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    cursor: pointer;
+    pointer-events: auto;
+    z-index: 6;
+}
+.tpl-day-hotspot:hover,
+.tpl-day-hotspot.selected {
+    background: rgba(255, 204, 216, .20);
+    outline: 2px dashed rgba(238, 113, 139, .72);
+    outline-offset: -5px;
+}
+.tpl-mood-entry {
+    position: absolute;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    align-items: start;
+    justify-items: center;
+    gap: 1px;
+    overflow: hidden;
+    color: #6d5260;
+    font-family: "Comic Sans MS", "Comic Sans", "Gaegu", "Microsoft YaHei", cursive;
+    font-weight: 800;
+    text-align: center;
+    pointer-events: none;
+    z-index: 5;
+}
+.calendar-modal-shade {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(76, 42, 55, .18);
+    z-index: 40;
+    pointer-events: auto;
+}
+.calendar-modal-shade:target {
+    display: flex;
+}
+.calendar-modal {
+    width: min(430px, 88vw);
+    padding: 18px 20px 20px;
+    border: 2px solid rgba(168, 101, 116, .86);
+    border-radius: 20px;
+    background: rgba(255, 247, 250, .98);
+    box-shadow: 0 18px 44px rgba(104, 58, 75, .28);
+    color: #7a5360;
+    font-family: "Comic Sans MS", "Comic Sans", "Gaegu", "Microsoft YaHei", cursive;
+    pointer-events: auto;
+}
+.calendar-modal-title {
+    font-size: 17px;
+    font-weight: 900;
+    margin-bottom: 12px;
+}
+.calendar-emoji-row {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+    margin: 8px 0 14px;
+}
+.calendar-emoji-row label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    border: 2px solid rgba(198, 148, 157, .52);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .72);
+    font-weight: 850;
+    cursor: pointer;
+    user-select: none;
+    pointer-events: auto;
+}
+.calendar-emoji-row label:hover {
+    border-color: rgba(224, 106, 132, .9);
+    background: #fff;
+}
+.calendar-emoji-row label:has(input:checked) {
+    border-color: #ef6f8f;
+    background: #ffe6ee;
+    box-shadow: 0 0 0 2px rgba(239, 111, 143, .18);
+}
+.calendar-emoji-row input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+.calendar-modal input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid rgba(198, 148, 157, .72);
+    border-radius: 12px;
+    background: #fffdfc;
+    color: #6d5260;
+    font: inherit;
+    padding: 9px 10px;
+    margin: 4px 0 14px;
+    pointer-events: auto;
+}
+.calendar-modal-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+}
+.calendar-modal-actions button,
+.calendar-modal-actions a {
+    min-height: 36px;
+    border-radius: 14px;
+    border: 2px solid rgba(154, 106, 115, .72);
+    background: #fff;
+    color: #6a4a52;
+    font: inherit;
+    font-weight: 900;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+}
+.tpl-mood-entry .entry-emoji {
+    font-size: clamp(18px, 2.15vw, 30px);
+    line-height: 1;
+}
+.tpl-mood-entry .entry-event {
+    width: 100%;
+    font-size: clamp(8px, .72vw, 12px);
+    line-height: 1.15;
+    word-break: break-word;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+}
 .tpl-card {
     position: absolute;
     overflow: hidden;
     color: #55484e;
     font-size: clamp(10px, 1.1vw, 14px);
     line-height: 1.35;
+}
+.tpl-history-hotspot {
+    position: absolute;
+    display: block;
+    border-radius: 8px;
+    background: transparent;
+    pointer-events: auto;
+    z-index: 7;
+}
+.tpl-history-hotspot:hover {
+    background: rgba(255, 204, 216, .16);
+    outline: 2px dashed rgba(238, 113, 139, .62);
+    outline-offset: -5px;
 }
 .tpl-date-chip {
     position: absolute;
@@ -546,6 +735,32 @@ DIARY_CSS = """
     bottom: 12%;
     overflow: hidden;
 }
+.tpl-diary-page-text {
+    position: absolute;
+    overflow: hidden;
+    color: #5a454b;
+    font-size: clamp(15px, 1.7vw, 22px);
+    line-height: 1.85;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: "KaiTi", "STKaiti", "Microsoft YaHei", cursive;
+}
+.tpl-diary-page-text.left {
+    left: 12%;
+    top: 26%;
+    width: 34%;
+    height: 42%;
+}
+.tpl-diary-page-text.right {
+    left: 56%;
+    top: 24%;
+    width: 33%;
+    height: 44%;
+    color: #4b5666;
+}
+.tpl-diary-empty {
+    color: rgba(152, 113, 123, .42);
+}
 .tpl-msg.user {
     margin-left: auto;
     background: #ffe2e9;
@@ -565,6 +780,230 @@ DIARY_CSS = """
     justify-content: center;
     margin: 0 6px;
 }
+.cover-enter-action div.stButton {
+    position: fixed;
+    left: 50%;
+    bottom: 5vh;
+    transform: translateX(-50%);
+    z-index: 20;
+    width: min(360px, 72vw);
+}
+.intro-profile-floating div[data-testid="stForm"] {
+    position: fixed;
+    left: 55.5vw;
+    top: 49.5vh;
+    z-index: 20;
+    width: min(330px, 34vw);
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+.intro-profile-floating div[data-testid="stForm"] [data-testid="stVerticalBlock"] {
+    gap: clamp(6px, 1.05vh, 12px);
+}
+.intro-profile-floating div[data-testid="stForm"] label {
+    display: none !important;
+}
+.intro-profile-floating div[data-testid="stForm"] input,
+.intro-profile-floating div[data-testid="stForm"] div[data-baseweb="select"] > div {
+    min-height: clamp(24px, 3.5vh, 34px) !important;
+    height: clamp(24px, 3.5vh, 34px) !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: rgba(255,255,255,.18) !important;
+    box-shadow: none !important;
+    color: #2c2528 !important;
+    font-size: clamp(12px, 1.45vw, 18px) !important;
+    font-weight: 800 !important;
+    padding: 0 8px !important;
+}
+.intro-profile-floating div[data-testid="stForm"] .stButton {
+    position: fixed;
+    left: 50%;
+    bottom: 5vh;
+    transform: translateX(-50%);
+    width: min(260px, 54vw);
+}
+.intro-template-active div[data-testid="stForm"],
+div[data-testid="stForm"]:has(#intro-template-form-anchor) {
+    position: fixed;
+    left: 55.5vw;
+    top: 49.5vh;
+    z-index: 20;
+    width: min(330px, 34vw);
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+div[data-testid="stForm"]:has(#intro-template-form-anchor) label {
+    display: none !important;
+}
+div[data-testid="stForm"]:has(#intro-template-form-anchor) input,
+div[data-testid="stForm"]:has(#intro-template-form-anchor) div[data-baseweb="select"] > div {
+    min-height: clamp(24px, 3.5vh, 34px) !important;
+    height: clamp(24px, 3.5vh, 34px) !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: rgba(255,255,255,.18) !important;
+    box-shadow: none !important;
+    color: #2c2528 !important;
+    font-size: clamp(12px, 1.45vw, 18px) !important;
+    font-weight: 800 !important;
+    padding: 0 8px !important;
+}
+div[data-testid="stForm"]:has(#intro-template-form-anchor) .stButton {
+    position: fixed;
+    left: 50%;
+    bottom: 5vh;
+    transform: translateX(-50%);
+    width: min(260px, 54vw);
+}
+div[data-testid="stForm"]:has(#calendar-editor-anchor) {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 30;
+    width: min(430px, 88vw);
+    max-height: none;
+    overflow: visible;
+    padding: 16px 18px 18px !important;
+    border: 2px solid rgba(168, 101, 116, .86) !important;
+    border-radius: 20px !important;
+    background: rgba(255, 247, 250, .98) !important;
+    box-shadow: 0 18px 44px rgba(104, 58, 75, .28) !important;
+}
+div[data-testid="stForm"]:has(#calendar-editor-anchor) label,
+div[data-testid="stForm"]:has(#calendar-editor-anchor) [data-testid="stMarkdownContainer"] p {
+    color: #7a5360 !important;
+    font-family: "Comic Sans MS", "Comic Sans", "Gaegu", "Microsoft YaHei", cursive !important;
+    font-weight: 850 !important;
+}
+div[data-testid="stForm"]:has(#calendar-editor-anchor) input {
+    border: 1px solid rgba(198, 148, 157, .72) !important;
+    border-radius: 12px !important;
+    background: #fffdfc !important;
+    color: #6d5260 !important;
+    font-family: "Comic Sans MS", "Comic Sans", "Gaegu", "Microsoft YaHei", cursive !important;
+    font-size: 15px !important;
+}
+div[data-testid="stForm"]:has(#calendar-editor-anchor) .stRadio {
+    margin-top: 0;
+}
+div[data-testid="stForm"]:has(#calendar-editor-anchor) [role="radiogroup"] {
+    gap: 5px 8px !important;
+    flex-wrap: wrap !important;
+}
+div[data-testid="stForm"]:has(#calendar-editor-anchor) [role="radio"] {
+    min-height: 26px !important;
+}
+div[data-testid="stForm"]:has(#calendar-editor-anchor) .stButton > button {
+    min-height: 36px;
+    border-radius: 14px !important;
+}
+div[data-testid="stForm"]:has(#diary-entry-form-anchor) {
+    position: relative;
+    width: min(1101px, calc(100vw - 72px));
+    aspect-ratio: 1475 / 670;
+    margin: 0 auto 14px auto;
+    padding: 0 !important;
+    border: 0 !important;
+    background-repeat: no-repeat !important;
+    background-position: center top !important;
+    background-size: 100% 100% !important;
+    box-shadow: none !important;
+    overflow: hidden;
+}
+div[data-testid="stForm"]:has(#diary-entry-form-anchor) [data-testid="stVerticalBlock"] {
+    gap: 0 !important;
+}
+div[data-testid="stForm"]:has(#diary-entry-form-anchor) label {
+    display: none !important;
+}
+div[data-testid="stForm"]:has(#diary-entry-form-anchor) [data-testid="stTextArea"] {
+    position: absolute;
+    left: 12.2%;
+    top: 31.5%;
+    width: 35.8%;
+    z-index: 5;
+}
+div[data-testid="stForm"]:has(#diary-entry-form-anchor) textarea {
+    height: calc(min(454px, calc((100vw - 72px) * 670 / 1475)) * .39) !important;
+    min-height: 168px !important;
+    resize: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #57434b !important;
+    font-family: "KaiTi", "STKaiti", "Microsoft YaHei", cursive !important;
+    font-size: clamp(16px, 1.5vw, 21px) !important;
+    line-height: 1.78 !important;
+    padding: 0 8px !important;
+    caret-color: #ef3f55 !important;
+}
+div[data-testid="stForm"]:has(#diary-entry-form-anchor) textarea::placeholder {
+    color: rgba(152, 113, 123, .38) !important;
+}
+div[data-testid="stForm"]:has(#diary-entry-form-anchor) div[data-testid="stFormSubmitButton"] {
+    position: absolute;
+    left: 42%;
+    top: 75.8%;
+    width: 8.5%;
+    z-index: 7;
+}
+div[data-testid="stForm"]:has(#diary-entry-form-anchor) div[data-testid="stFormSubmitButton"] button,
+.diary-flip-control .stButton > button {
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #ef3f55 !important;
+    font-size: clamp(18px, 2.2vw, 34px) !important;
+    font-weight: 950 !important;
+    padding: 0 !important;
+    min-height: auto !important;
+}
+.diary-right-reply {
+    position: absolute;
+    left: 57.4%;
+    top: 25.8%;
+    width: 33.4%;
+    height: 45%;
+    overflow: hidden;
+    z-index: 4;
+    color: #4b5666;
+    font-size: clamp(16px, 1.5vw, 21px);
+    line-height: 1.78;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: "KaiTi", "STKaiti", "Microsoft YaHei", cursive;
+}
+.diary-flip-link {
+    position: absolute;
+    left: 84.2%;
+    top: 74.8%;
+    z-index: 8;
+    color: #ef3f55 !important;
+    font-size: clamp(18px, 2.2vw, 34px);
+    font-weight: 950;
+    text-decoration: none !important;
+    font-family: "Microsoft YaHei", sans-serif;
+}
+.diary-flip-control {
+    position: fixed;
+    left: calc(50vw + min(1101px, calc(100vw - 72px)) * .34);
+    top: calc(1rem + min(500px, calc((100vw - 72px) * 670 / 1475)) * .75);
+    z-index: 25;
+    width: calc(min(1101px, calc(100vw - 72px)) * .12);
+}
+.diary-action-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin: 10px 0 16px;
+}
 @media (max-width: 850px) {
     .cover-scene, .intro-grid, .history-spread, .calendar-deco, .history-header {
         grid-template-columns: 1fr;
@@ -574,6 +1013,38 @@ DIARY_CSS = """
     .history-column.left { margin-top: 0; }
     .history-column.right .history-card,
     .history-card { height: 138px; }
+    .intro-profile-floating div[data-testid="stForm"] {
+        left: 15vw;
+        top: 42vh;
+        width: 70vw;
+    }
+    div[data-testid="stForm"]:has(#intro-template-form-anchor) {
+        left: 15vw;
+        top: 42vh;
+        width: 70vw;
+    }
+    div[data-testid="stForm"]:has(#diary-entry-form-anchor) {
+        position: static;
+        width: 100%;
+        margin-top: 8px;
+    }
+    div[data-testid="stForm"]:has(#diary-entry-form-anchor) [data-testid="stTextArea"],
+    div[data-testid="stForm"]:has(#diary-entry-form-anchor) div[data-testid="stFormSubmitButton"],
+    .diary-right-reply,
+    .diary-flip-link {
+        position: static;
+        width: auto;
+        height: auto;
+        margin: 10px 16px;
+    }
+    .diary-flip-control {
+        position: static;
+        width: 100%;
+        margin-bottom: 12px;
+    }
+    .diary-action-row {
+        grid-template-columns: 1fr;
+    }
 }
 </style>
 """
@@ -605,16 +1076,18 @@ def _template_data_url(name: str) -> Optional[str]:
     return f"data:{mime};base64,{encoded}"
 
 
+def _clean_html_fragment(fragment: str) -> str:
+    return "".join(line.strip() for line in str(fragment or "").splitlines() if line.strip())
+
+
 def _render_template(name: str, overlays: str = "") -> bool:
     url = _template_data_url(name)
     if not url:
         return False
+    clean_overlays = _clean_html_fragment(overlays)
     st.markdown(
-        f"""
-        <div class="template-frame template-{name}" style="background-image: url('{url}');">
-            <div class="template-overlay">{overlays}</div>
-        </div>
-        """,
+        f"<div class=\"template-frame template-{name}\" style=\"background-image: url('{url}');\">"
+        f"<div class=\"template-overlay\">{clean_overlays}</div></div>",
         unsafe_allow_html=True,
     )
     return True
@@ -634,6 +1107,42 @@ def _weekday_en(dt: datetime) -> str:
 
 def _month_tab() -> str:
     return str(datetime.now().month)
+
+
+def _mood_entry(moods: Dict[str, Any], key: str) -> Dict[str, str]:
+    value = moods.get(key, "")
+    if isinstance(value, dict):
+        return {
+            "emoji": str(value.get("emoji", "") or ""),
+            "event": str(value.get("event", "") or "")[:30],
+        }
+    return {"emoji": str(value or ""), "event": ""}
+
+
+def _query_value(name: str) -> str:
+    value = st.query_params.get(name, "")
+    if isinstance(value, list):
+        return str(value[0] if value else "")
+    return str(value or "")
+
+
+def _consume_calendar_save(year: int, month: int) -> None:
+    day_key = _query_value("mood_day")
+    if not day_key:
+        return
+    try:
+        picked = datetime.strptime(day_key, "%Y-%m-%d")
+    except Exception:
+        st.query_params.clear()
+        st.rerun()
+        return
+    if picked.year == year and picked.month == month:
+        if _query_value("mood_clear"):
+            save_mood(day_key, "", "")
+        else:
+            save_mood(day_key, _query_value("mood_emoji"), _query_value("mood_event"))
+    st.query_params.clear()
+    st.rerun()
 
 
 def _tabs(active: str) -> str:
@@ -719,15 +1228,16 @@ def render_intro() -> None:
     """
     if _render_template("intro", profile_overlays):
         with st.form("diary_profile_form_tpl"):
-            c1, c2 = st.columns(2)
+            st.markdown('<span id="intro-template-form-anchor"></span>', unsafe_allow_html=True)
+            (c1,) = st.columns(1)
             with c1:
-                name = st.text_input("NAME", value=profile.get("name", st.session_state.get("user_nickname", "")))
-                mbti = st.text_input("MBTI", value=profile.get("mbti", ""), placeholder="可不填")
-                sns = st.text_input("SNS @", value=profile.get("sns", ""), placeholder="可不填")
-            with c2:
-                deco_level = st.selectbox("DECO LEVEL", ["Lv.1", "Lv.2", "Lv.3", "Lv.4"], index=0)
-                companion = st.text_input("AI COMPANION", value=profile.get("companion", "Echo"))
-                signature = st.text_input("SIGNATURE", value=profile.get("signature", ""), placeholder="写一句给自己的话")
+                name = st.text_input("NAME", value=profile.get("name", st.session_state.get("user_nickname", "")), label_visibility="collapsed")
+                mbti = st.text_input("MBTI", value=profile.get("mbti", ""), placeholder="可不填", label_visibility="collapsed")
+                sns = st.text_input("SNS @", value=profile.get("sns", ""), placeholder="可不填", label_visibility="collapsed")
+            with c1:
+                deco_level = st.selectbox("DECO LEVEL", ["Lv.1", "Lv.2", "Lv.3", "Lv.4"], index=0, label_visibility="collapsed")
+                companion = st.text_input("AI COMPANION", value=profile.get("companion", "Echo"), label_visibility="collapsed")
+                signature = st.text_input("SIGNATURE", value=profile.get("signature", ""), placeholder="写一句给自己的话", label_visibility="collapsed")
             submitted = st.form_submit_button("START", use_container_width=True)
         if submitted:
             save_profile({
@@ -795,45 +1305,62 @@ def render_intro() -> None:
 def render_calendar() -> None:
     today = datetime.now()
     year, month = today.year, today.month
-    date_key = today.strftime("%Y-%m-%d")
     moods = st.session_state.get("diary_moods", {}) or {}
-    options = ["", "😊", "🙂", "😐", "😕", "😢", "😡", "😴", "🥰", "🌧️", "🌈"]
-    labels = ["不填写"] + options[1:]
-    current = moods.get(date_key, "")
-    current_index = options.index(current) if current in options else 0
+    _consume_calendar_save(year, month)
 
     if _template_path("calendar"):
+        options = ["", "😊", "🙂", "😐", "😕", "😢", "😡", "😴", "🥰", "🌧️", "🌈"]
         cal_for_overlay = calendar.Calendar(firstweekday=6)
         weeks_for_overlay = cal_for_overlay.monthdayscalendar(year, month)
         overlay_parts = []
+        modal_parts = []
+        row_tops = [26.55, 38.05, 49.65, 61.55, 73.7, 85.1]
+        row_heights = [10.35, 10.35, 10.45, 10.55, 10.65, 8.5]
+
         for row_idx, week in enumerate(weeks_for_overlay):
             for col_idx, day in enumerate(week):
                 if day == 0:
                     continue
                 key = f"{year}-{month:02d}-{day:02d}"
-                emoji = moods.get(key, "")
-                if not emoji:
-                    continue
-                left = 15.6 + col_idx * 11.75 + 5.85
-                top = 25.2 + row_idx * 11.55 + 6.0
+                entry = _mood_entry(moods, key)
+                cell_left = 15.6 + col_idx * 11.75
+                cell_top = row_tops[min(row_idx, len(row_tops) - 1)]
+                cell_height = row_heights[min(row_idx, len(row_heights) - 1)]
+                modal_id = f"calendar-modal-{key}"
                 overlay_parts.append(
-                    f'<div class="tpl-mood" style="left:{left:.2f}%;top:{top:.2f}%;">{escape(emoji)}</div>'
+                    f'<a class="tpl-day-hotspot" href="#{modal_id}" '
+                    f'style="left:{cell_left:.2f}%;top:{cell_top:.2f}%;width:11.75%;height:{cell_height:.2f}%;" aria-label="编辑 {key}"></a>'
                 )
+                if entry["emoji"] or entry["event"]:
+                    overlay_parts.append(
+                        f'<div class="tpl-mood-entry" style="left:{cell_left + 1.1:.2f}%;top:{cell_top + 2.55:.2f}%;width:9.5%;height:{max(cell_height - 2.75, 5.8):.2f}%;">'
+                        f'<div class="entry-emoji">{escape(entry["emoji"])}</div>'
+                        f'<div class="entry-event">{escape(entry["event"])}</div></div>'
+                    )
+
+                radios = []
+                for option in options:
+                    label = "不填写" if option == "" else option
+                    checked = " checked" if option == entry["emoji"] or (option == "" and not entry["emoji"]) else ""
+                    radios.append(f'<label><input type="radio" name="mood_emoji" value="{escape(option)}"{checked}> {escape(label)}</label>')
+                modal_parts.append(
+                    f'<div class="calendar-modal-shade" id="{modal_id}">'
+                    f'<form class="calendar-modal" method="get">'
+                    f'<input type="hidden" name="mood_day" value="{key}">'
+                    f'<div class="calendar-modal-title">给 {month} 月 {day} 日贴一小格心情</div>'
+                    f'<div>心情</div><div class="calendar-emoji-row">{"".join(radios)}</div>'
+                    f'<label>小事件（30字内）</label>'
+                    f'<input type="text" name="mood_event" value="{escape(entry["event"])}" maxlength="30" placeholder="今天发生的小事件...">'
+                    f'<div class="calendar-modal-actions">'
+                    f'<button type="submit">保存</button>'
+                    f'<button type="submit" name="mood_clear" value="1">清空</button>'
+                    f'<a href="#calendar">返回</a>'
+                    f'</div></form></div>'
+                )
+
+        overlay_parts.extend(modal_parts)
+        st.markdown('<span id="calendar"></span>', unsafe_allow_html=True)
         _render_template("calendar", "".join(overlay_parts))
-        clean_options = ["", "😊", "🙂", "😐", "😕", "😢", "😡", "😴", "🥰", "🌧️", "🌈"]
-        clean_labels = ["不填写"] + clean_options[1:]
-        clean_current_index = clean_options.index(current) if current in clean_options else 0
-        c1, c2, c3 = st.columns([1, 1, 2])
-        with c1:
-            picked_label = st.selectbox("今日心情", clean_labels, index=clean_current_index, key="mood_select_tpl")
-            picked = "" if picked_label == "不填写" else picked_label
-        with c2:
-            if st.button("保存到今天", use_container_width=True, key="save_mood_tpl"):
-                save_mood(date_key, picked)
-                st.success("已保存。")
-                st.rerun()
-        with c3:
-            st.caption("原图作为底图显示，日期格子的字体和装饰不会被重画。")
         return
 
     _open_shell(str(month))
@@ -841,48 +1368,11 @@ def render_calendar() -> None:
         f"""
         <div class="calendar-head">
             <div class="month-title">{month}<span style="font-size:42px;margin-left:14px;">{today.strftime("%B").upper()}</span></div>
-            <div class="calendar-note">今天是 {today.strftime("%Y.%m.%d")} · {_weekday_en(today)}，可以给今天贴一个心情 emoji，不填也会保留空白。</div>
-        </div>
-        <div class="calendar-deco">
-            <div class="calendar-bear">🐻🎉</div>
-            <div class="calendar-cloud"></div>
-            <div class="calendar-cat">🐱</div>
+            <div class="calendar-note">今天是 {today.strftime("%Y.%m.%d")} · {_weekday_en(today)}，点击日期格记录心情和 30 字内小事件。</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    c1, c2, c3 = st.columns([1, 1, 2])
-    with c1:
-        picked_label = st.selectbox("今日心情", labels, index=current_index, key="mood_select")
-        picked = "" if picked_label == "不填写" else picked_label
-    with c2:
-        if st.button("保存到今天", use_container_width=True, key="save_mood"):
-            save_mood(date_key, picked)
-            st.success("已保存。")
-            st.rerun()
-    with c3:
-        st.markdown("<div class='tip-box'>每天只保存一个心情 emoji；没填的日期会像原图一样留白。</div>", unsafe_allow_html=True)
-
-    cal = calendar.Calendar(firstweekday=6)
-    weeks = cal.monthdayscalendar(year, month)
-    weekdays = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
-    html = ['<table class="mood-calendar"><thead><tr>']
-    for day_name in weekdays:
-        html.append(f"<th>{day_name}</th>")
-    html.append("</tr></thead><tbody>")
-    for week in weeks:
-        html.append("<tr>")
-        for day in week:
-            if day == 0:
-                html.append("<td></td>")
-                continue
-            key = f"{year}-{month:02d}-{day:02d}"
-            emoji = escape(moods.get(key, ""))
-            color = "#d07782" if datetime(year, month, day).weekday() == 6 else "#333"
-            html.append(f'<td><span style="color:{color}">{day}</span><span class="mood-emoji">{emoji}</span></td>')
-        html.append("</tr>")
-    html.append("</tbody></table>")
-    st.markdown("".join(html), unsafe_allow_html=True)
     _close_shell()
 
 
@@ -916,6 +1406,13 @@ def _history_card(record: Optional[Dict[str, Any]], fallback_dt: datetime) -> st
 
 
 def render_history() -> None:
+    open_history_id = _query_value("open_history")
+    if open_history_id:
+        st.session_state.selected_history_id = open_history_id
+        st.session_state.diary_stage = "HISTORY_CHAT"
+        st.query_params.clear()
+        st.rerun()
+
     records = list_history_records("psytest")
     page_size = 7
     total_pages = max(1, (len(records) + page_size - 1) // page_size)
@@ -972,6 +1469,7 @@ def render_history() -> None:
             mood = escape(record.get("mood", "") or "📝")
             overlay_parts.append(
                 f"""
+                <a class="tpl-history-hotspot" href="?open_history={escape(record['id'])}" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%;" aria-label="打开这条记录"></a>
                 <div class="tpl-card" style="left:{x}%;top:{y}%;width:{w}%;height:{h}%;">
                     <div style="font-size:clamp(16px,2vw,28px);">{mood}</div>
                     <div>{summary}</div>
@@ -981,21 +1479,6 @@ def render_history() -> None:
             )
         _render_template("history", "".join(overlay_parts))
 
-        for row in range(4):
-            cols = st.columns(2)
-            for col_idx in range(2):
-                idx = row * 2 + col_idx
-                if idx >= page_size:
-                    continue
-                record = cells[idx]
-                with cols[col_idx]:
-                    if record:
-                        if st.button("打开这条记录", key=f"open_hist_tpl_{record['id']}", use_container_width=True):
-                            st.session_state.selected_history_id = record["id"]
-                            st.session_state.diary_stage = "HISTORY_CHAT"
-                            st.rerun()
-                    else:
-                        st.button("空白记录框", key=f"empty_hist_tpl_{page}_{idx}", disabled=True, use_container_width=True)
         c1, c2, c3 = st.columns([1, 1, 1])
         with c1:
             if st.button("上一页", disabled=page <= 0, use_container_width=True, key="history_prev_tpl"):
@@ -1081,51 +1564,190 @@ def _message_html(msg: Dict[str, Any], user_avatar: str = "🐰", ai_avatar: str
     """
 
 
+def _latest_exchange(messages: List[Dict[str, Any]]) -> Dict[str, str]:
+    user_text = ""
+    assistant_text = ""
+    for msg in reversed(messages):
+        role = msg.get("role")
+        content = str(msg.get("content", ""))
+        if role == "assistant" and not assistant_text:
+            assistant_text = content
+        elif role == "user" and not user_text:
+            user_text = content
+        if user_text and assistant_text:
+            break
+    if not user_text:
+        assistant_text = ""
+    return {"user": user_text, "assistant": assistant_text}
+
+
 def _chat_paper(messages: List[Dict[str, Any]], title: str) -> None:
     now = datetime.now()
     date_text = message_date(messages[0]) if messages else now.strftime("%Y.%m.%d")
+    exchange = st.session_state.get("psy_visible_exchange")
+    if not isinstance(exchange, dict):
+        exchange = _latest_exchange(messages)
+    user_text = str(exchange.get("user") or "")
+    assistant_text = str(exchange.get("assistant") or "")
+
     if _template_path("chat"):
+        left_html = escape(user_text).replace("\n", "<br/>") or '<span class="tpl-diary-empty">把想说的话写在这里...</span>'
+        right_html = escape(assistant_text).replace("\n", "<br/>") or '<span class="tpl-diary-empty">日记会在这里回应你。</span>'
         parts = [
             f'<div class="tpl-text" style="left:8%;top:9%;width:42%;">{escape(date_text)} · {_weekday_en(now)} · {now.strftime("%H:%M")}</div>',
-            '<div class="tpl-chat-list">',
+            f'<div class="tpl-diary-page-text left">{left_html}</div>',
+            f'<div class="tpl-diary-page-text right">{right_html}</div>',
         ]
-        visible_messages = [m for m in messages if m.get("role") in ("user", "assistant")][-8:]
-        for msg in visible_messages:
-            role = msg.get("role", "assistant")
-            content = escape(str(msg.get("content", ""))).replace("\n", "<br/>")
-            if role == "user":
-                parts.append(f'<div class="tpl-msg user">{content}</div>')
-            else:
-                parts.append(f'<div class="tpl-msg assistant"><span class="tpl-avatar">🐻</span>{content}</div>')
-        parts.append("</div>")
         _render_template("chat", "".join(parts))
         return
 
+    left_html = escape(user_text).replace("\n", "<br/>") or "把想说的话写在这里..."
+    right_html = escape(assistant_text).replace("\n", "<br/>") or "日记会在这里回应你。"
     html = [
         '<div class="chat-paper">',
         f'<div class="chat-top"><div>{escape(date_text)} · {_weekday_en(now)} · {now.strftime("%H:%M")}</div><div>{escape(title)}</div></div>',
+        f'<div class="history-spread"><div class="msg-bubble">{left_html}</div><div class="msg-bubble">{right_html}</div></div>',
     ]
-    for msg in messages:
-        html.append(_message_html(msg))
     html.append("</div>")
     st.markdown("".join(html), unsafe_allow_html=True)
 
 
-def render_live_chat() -> None:
-    profile = st.session_state.get("diary_profile") or {}
-    companion = profile.get("companion", "Echo")
-    messages = st.session_state.get("psy_messages", [])
+def _history_dialog(messages: List[Dict[str, Any]], title: str, record: Dict[str, Any]) -> None:
+    messages = normalize_messages(messages)
+    raw_time = record.get("updated_at") or record.get("created_at") or record.get("timestamp") or ""
+    try:
+        time_text = datetime.fromisoformat(str(raw_time)).strftime("%Y.%m.%d %H:%M")
+    except Exception:
+        time_text = str(raw_time)[:16]
+    rows = "".join(
+        _clean_html_fragment(_message_html(msg))
+        for msg in messages
+        if str(msg.get("content", "")).strip()
+    )
+    if not rows:
+        rows = '<div class="tip-box">这条记录还没有可显示的对话内容。</div>'
+    st.markdown(
+        f"<div class=\"chat-paper history-dialog\">"
+        f"<div class=\"chat-top\"><div>{escape(time_text)}</div><div>{escape(title or '历史对话')}</div></div>"
+        f"{rows}</div>",
+        unsafe_allow_html=True,
+    )
 
-    _open_shell("NOTE")
-    _chat_paper(messages, f"{companion} is listening")
+
+def _turn_diary_page() -> None:
+    st.session_state.psy_visible_exchange = {"user": "", "assistant": ""}
+    st.session_state.psy_diary_text = ""
+    st.session_state.show_psy_report = False
+    st.rerun()
+
+
+def _apply_psy_proactive(messages: List[Dict[str, Any]], scores: Dict[str, int], force: bool = False) -> bool:
+    messages, added, _ = maybe_add_care_proactive("psytest", messages, scores, force=force)
+    if not added:
+        return False
+    record_id = save_history_record(
+        "psytest",
+        messages,
+        scores,
+        st.session_state.get("psy_record_id"),
+        title="AI 心理评测主动关怀",
+        mood="",
+    )
+    st.session_state.psy_record_id = record_id
+    st.session_state.psy_messages = messages
+    st.session_state.psy_scores = scores
+    st.session_state.psy_visible_exchange = _latest_exchange(messages)
+    return True
+
+
+def render_live_chat() -> None:
+    if st.query_params.get("diary_flip"):
+        st.session_state.psy_visible_exchange = {"user": "", "assistant": ""}
+        st.session_state.psy_diary_text = ""
+        st.session_state.show_psy_report = False
+        try:
+            del st.query_params["diary_flip"]
+        except Exception:
+            st.query_params.clear()
+        st.rerun()
+
+    messages = st.session_state.get("psy_messages", [])
     scores = st.session_state.get("psy_scores") or score_messages(messages)
+    if _apply_psy_proactive(messages, scores):
+        messages = st.session_state.get("psy_messages", [])
+        scores = st.session_state.get("psy_scores") or score_messages(messages)
+    exchange = st.session_state.get("psy_visible_exchange")
+    if not isinstance(exchange, dict):
+        exchange = _latest_exchange(messages)
+    assistant_text = str(exchange.get("assistant") or "")
+    reply_html = escape(assistant_text).replace("\n", "<br/>") or '<span class="tpl-diary-empty">日记会在这里回应你。</span>'
+    now = datetime.now()
+
+    chat_bg = _template_data_url("chat")
+    if chat_bg:
+        st.markdown(
+            f"""
+            <style>
+            div[data-testid="stForm"]:has(#diary-entry-form-anchor) {{
+                background-image: url('{chat_bg}') !important;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with st.form("diary_entry_form", clear_on_submit=False):
+        st.markdown('<span id="diary-entry-form-anchor"></span>', unsafe_allow_html=True)
+        st.markdown(
+            f"""
+            <div class="tpl-text" style="left:8%;top:9%;width:42%;">
+                {now.strftime("%Y.%m.%d")} · {_weekday_en(now)} · {now.strftime("%H:%M")}
+            </div>
+            <div class="diary-right-reply">{reply_html}</div>
+            <a class="diary-flip-link" href="?diary_flip=1">翻页</a>
+            """,
+            unsafe_allow_html=True,
+        )
+        prompt = st.text_area(
+            "写在今天的日记里",
+            placeholder="把想说的话写在这里...",
+            label_visibility="collapsed",
+            key="psy_diary_text",
+        )
+        submitted = st.form_submit_button("确定", use_container_width=True)
+
+    if submitted and prompt.strip():
+        user_text = prompt.strip()
+        assessment = assess_message_safety(user_text)
+        messages.append(attach_safety_metadata(make_message("user", user_text), assessment))
+        scores = score_messages(messages)
+        if assessment.needs_support:
+            reply = make_safety_reply(assessment, "Echo")
+            assistant_message = make_message("assistant", reply)
+            assistant_message["safety_response"] = True
+            assistant_message["safety_level"] = assessment.level
+            if assessment.is_crisis:
+                assistant_message["crisis_popup"] = True
+                queue_crisis_alert("psytest", assessment, user_text, "Echo")
+            messages.append(assistant_message)
+        else:
+            with st.spinner("Echo 正在右页写回复..."):
+                reply = generate_reply("psytest", user_text, messages, scores)
+            messages.append(make_message("assistant", reply))
+        record_id = save_history_record("psytest", messages, scores, st.session_state.get("psy_record_id"), mood="")
+        st.session_state.psy_record_id = record_id
+        st.session_state.psy_messages = messages
+        st.session_state.psy_scores = scores
+        st.session_state.psy_diary_text = user_text
+        st.session_state.psy_visible_exchange = {"user": user_text, "assistant": reply}
+        st.rerun()
+
     score_html = "".join(f'<span class="score-pill">{name}: {scores.get(key, 5)}/10</span>' for key, name in DIMENSIONS.items())
     st.markdown(f"<div>{score_html}</div>", unsafe_allow_html=True)
     if st.session_state.get("show_psy_report"):
         st.markdown(make_report(scores, messages), unsafe_allow_html=True)
-    _close_shell()
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         if st.button("生成/查看报告", use_container_width=True, key="show_report"):
             st.session_state.show_psy_report = not st.session_state.get("show_psy_report", False)
@@ -1135,25 +1757,19 @@ def render_live_chat() -> None:
             st.session_state.diary_stage = "INFO"
             st.rerun()
     with c3:
-        if st.button("重新开始一次评测", use_container_width=True, key="reset_psy_chat"):
+        if st.button("主动关怀", use_container_width=True, key="psy_force_proactive"):
+            if _apply_psy_proactive(messages, scores, force=True):
+                st.rerun()
+            st.toast("先写下一点心情，Echo 会更懂你。")
+    with c4:
+        if st.button("重新开始一次评估", use_container_width=True, key="reset_psy_chat"):
             st.session_state.psy_messages = [make_message("assistant", "新的日记页打开了。今天先从哪里说起？")]
             st.session_state.psy_scores = {}
             st.session_state.psy_record_id = None
             st.session_state.show_psy_report = False
+            st.session_state.psy_diary_text = ""
+            st.session_state.psy_visible_exchange = {"user": "", "assistant": ""}
             st.rerun()
-
-    prompt = st.chat_input("写在今天的日记里...", key="psy_chat_input")
-    if prompt:
-        messages.append(make_message("user", prompt))
-        scores = score_messages(messages)
-        reply = generate_reply("psytest", prompt, messages, scores)
-        messages.append(make_message("assistant", reply))
-        record_id = save_history_record("psytest", messages, scores, st.session_state.get("psy_record_id"), mood="")
-        st.session_state.psy_record_id = record_id
-        st.session_state.psy_messages = messages
-        st.session_state.psy_scores = scores
-        st.rerun()
-
 
 def render_history_chat() -> None:
     record_id = st.session_state.get("selected_history_id")
@@ -1166,12 +1782,17 @@ def render_history_chat() -> None:
             st.rerun()
         return
 
-    messages = record.get("messages") or record.get("display_messages") or []
+    messages = normalize_messages(record.get("messages") or record.get("display_messages") or [])
     _open_shell("NOTE")
-    _chat_paper(messages, "History Chat")
+    _history_dialog(messages, record.get("title") or "历史对话", record)
     _close_shell()
 
-    c1, c2 = st.columns(2)
+    text_record = record.get("conversation_text") or messages_to_readable_text(
+        messages,
+        record.get("title") or "历史对话",
+    )
+
+    c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("返回历史记录", use_container_width=True, key="back_history_list"):
             st.session_state.selected_history_id = None
@@ -1185,17 +1806,51 @@ def render_history_chat() -> None:
             st.session_state.selected_history_id = None
             st.session_state.diary_stage = "NOTE"
             st.rerun()
+    with c3:
+        st.download_button(
+            "下载文字记录",
+            data=text_record,
+            file_name=f"{record_id}_对话记录.txt",
+            mime="text/plain",
+            use_container_width=True,
+            key="download_history_text",
+        )
 
     prompt = st.chat_input("继续追问或补充这条历史记录...", key="history_chat_input")
     if prompt:
-        messages.append(make_message("user", prompt))
+        assessment = assess_message_safety(prompt)
+        messages.append(attach_safety_metadata(make_message("user", prompt), assessment))
         scores = score_messages(messages)
-        messages.append(make_message("assistant", generate_reply("psytest", prompt, messages, scores)))
+        if assessment.needs_support:
+            assistant_message = make_message("assistant", make_safety_reply(assessment, "Echo"))
+            assistant_message["safety_response"] = True
+            assistant_message["safety_level"] = assessment.level
+            if assessment.is_crisis:
+                assistant_message["crisis_popup"] = True
+                queue_crisis_alert("psytest_history", assessment, prompt, "Echo")
+            messages.append(assistant_message)
+        else:
+            messages.append(make_message("assistant", generate_reply("psytest", prompt, messages, scores)))
         update_history_messages(record_id, messages, scores)
         st.rerun()
 
 
 def render_nav() -> None:
+    stage = st.session_state.get("diary_stage", _month_tab())
+    if stage not in ("NOTE", "INFO"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if st.button("双人聊天", use_container_width=True, key="nav_chat_calendar"):
+                st.session_state.diary_stage = "NOTE"
+                st.rerun()
+        with c2:
+            if st.button("历史记录", use_container_width=True, key="nav_history_calendar"):
+                st.session_state.diary_stage = "INFO"
+                st.rerun()
+        with c3:
+            _back_home_button()
+        return
+
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         if st.button("心情日历", use_container_width=True, key="nav_calendar"):
@@ -1215,9 +1870,25 @@ def render_nav() -> None:
 
 def render_psytest_diary() -> None:
     _inject_css()
+    render_crisis_alert_if_needed()
     stage = st.session_state.get("diary_stage", "cover")
 
     if stage == "cover":
+        st.markdown(
+            """
+            <style>
+            div.stButton {
+                position: fixed;
+                left: 50%;
+                bottom: 5vh;
+                transform: translateX(-50%);
+                z-index: 20;
+                width: min(360px, 72vw);
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
         render_cover()
         return
     if stage == "INTRO" or not st.session_state.get("diary_profile"):

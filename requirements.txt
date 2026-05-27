@@ -1,0 +1,22 @@
+streamlit==1.57.0
+python-dotenv==1.2.2
+openai==2.36.0
+requests==2.33.1
+supabase==2.30.0
+
+numpy==2.4.4
+pandas==3.0.2
+matplotlib==3.10.9
+torch==2.11.0
+
+opencv-python==4.13.0.92
+SpeechRecognition==3.16.1
+pyttsx3==2.99
+PyAudio==0.2.14; platform_system == "Windows"
+
+langchain-community==0.4.1
+langchain-huggingface==1.2.2
+langchain-text-splitters==1.1.2
+langchain-chroma==1.1.0
+faiss-cpu==1.13.2
+sentence-transformers==5.4.1

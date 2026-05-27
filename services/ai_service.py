@@ -216,12 +216,32 @@ def transcribe_audio(audio_bytes, filename="audio.webm", mime_type="audio/webm")
     Returns:
         str: 识别出的文字
     """
+    import base64
+
     client = get_qwen_client()
-    transcript = client.audio.transcriptions.create(
+    audio_mime_type = mime_type or "audio/webm"
+    audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+    data_uri = f"data:{audio_mime_type};base64,{audio_base64}"
+
+    completion = client.chat.completions.create(
         model=QWEN_ASR_MODEL,
-        file=(filename, audio_bytes, mime_type)
+        messages=[{
+            "role": "user",
+            "content": [{
+                "type": "input_audio",
+                "input_audio": {
+                    "data": data_uri
+                }
+            }]
+        }],
+        stream=False,
+        extra_body={
+            "asr_options": {
+                "enable_itn": False
+            }
+        }
     )
-    return transcript.text
+    return completion.choices[0].message.content or ""
 
 
 # ==========================================

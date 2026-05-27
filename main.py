@@ -26,17 +26,6 @@ hide_streamlit_style = """
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-# 隐藏 Streamlit 自带顶栏、菜单、Deploy 按钮和页脚
-hide_streamlit_style = """
-    <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stApp { margin-top: -3rem; }
-    </style>
-"""
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
 init_runtime_state()
 
 if not st.session_state.get("is_logged_in", False) and not st.session_state.get("skipped_login", False):

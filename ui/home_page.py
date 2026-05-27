@@ -1,4 +1,9 @@
+from html import escape
+
 import streamlit as st
+
+from services.proactive_engine import get_proactive_settings, set_proactive_enabled
+from services.user_profile import get_profile_summary
 
 
 HOME_CSS = """
@@ -20,17 +25,22 @@ HOME_CSS = """
     margin: 10px 0 8px;
 }
 .feature-card {
-    min-height: 260px;
+    height: 330px;
+    box-sizing: border-box;
     background: rgba(255,255,255,.78);
     border: 2px solid rgba(70,70,70,.12);
     border-radius: 16px;
     padding: 28px 22px;
     box-shadow: 0 12px 32px rgba(90,70,80,.12);
     text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
 }
 .feature-icon { font-size: 54px; margin-bottom: 12px; }
 .feature-name { font-size: 28px; font-weight: 900; color: #3f3c46; }
-.feature-desc { color: #675e66; font-size: 16px; line-height: 1.7; margin-top: 12px; }
+.feature-desc { color: #675e66; font-size: 16px; line-height: 1.7; margin-top: 12px; min-height: 82px; }
 .status-strip {
     display: inline-flex;
     gap: 10px;
@@ -41,6 +51,86 @@ HOME_CSS = """
     border: 1px solid rgba(80,80,80,.12);
     color: #6b5960;
     margin-bottom: 18px;
+}
+.profile-panel {
+    margin: 2px 0 24px;
+    padding: 18px 20px;
+    border-radius: 12px;
+    background: rgba(255,255,255,.72);
+    border: 1px solid rgba(80,80,80,.12);
+    box-shadow: 0 10px 26px rgba(90,70,80,.10);
+}
+.profile-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: center;
+    color: #3f3c46;
+    font-weight: 900;
+    font-size: 18px;
+    margin-bottom: 12px;
+}
+.profile-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+.profile-cell {
+    min-height: 72px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: rgba(255,255,255,.66);
+    border: 1px solid rgba(90,70,80,.10);
+}
+.profile-label {
+    color: #8b7480;
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 6px;
+}
+.profile-value {
+    color: #3f3c46;
+    font-size: 17px;
+    font-weight: 900;
+    line-height: 1.35;
+}
+.profile-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.profile-tag {
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid rgba(215,146,164,.36);
+    color: #8e5666;
+    font-size: 12px;
+    font-weight: 800;
+}
+.proactive-panel {
+    margin: -10px 0 24px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: rgba(255,255,255,.66);
+    border: 1px solid rgba(80,80,80,.12);
+    color: #62545c;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+}
+.proactive-title {
+    font-weight: 900;
+    color: #3f3c46;
+}
+.proactive-note {
+    margin-top: 4px;
+    font-size: 13px;
+    color: #8b7480;
+}
+@media (max-width: 860px) {
+    .profile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .stButton > button {
     border-radius: 12px !important;
@@ -81,6 +171,51 @@ def _display_user() -> str:
     return "本地模式"
 
 
+def _render_profile_snapshot() -> None:
+    try:
+        summary = get_profile_summary()
+    except Exception:
+        return
+
+    score = summary.get("overall_score")
+    score_text = f"{score}/100" if isinstance(score, (int, float)) else "等待评测"
+    tags = summary.get("tags") or ["画像生成中"]
+    topics = summary.get("recent_topics") or ["暂无主题"]
+    tag_html = "".join(f'<span class="profile-tag">{escape(str(tag))}</span>' for tag in tags[:6])
+    topic_html = "、".join(escape(str(topic)) for topic in topics[:4])
+    risk_text = "重点关注" if summary.get("risk_level") in {"medium", "high"} else "常规陪伴"
+
+    st.markdown(
+        f"""
+        <div class="profile-panel">
+            <div class="profile-head">
+                <span>用户画像中枢</span>
+                <span>{escape(risk_text)} · 已记录 {escape(str(summary.get("total_events", 0)))} 次互动</span>
+            </div>
+            <div class="profile-grid">
+                <div class="profile-cell">
+                    <div class="profile-label">综合状态</div>
+                    <div class="profile-value">{escape(str(summary.get("level") or "暂无评估"))}<br>{escape(score_text)}</div>
+                </div>
+                <div class="profile-cell">
+                    <div class="profile-label">最近情绪</div>
+                    <div class="profile-value">{escape(str(summary.get("latest_emotion") or "暂无"))}</div>
+                </div>
+                <div class="profile-cell">
+                    <div class="profile-label">关注主题</div>
+                    <div class="profile-value">{topic_html}</div>
+                </div>
+                <div class="profile-cell">
+                    <div class="profile-label">画像标签</div>
+                    <div class="profile-tags">{tag_html}</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _logout() -> None:
     try:
         from services.storage_auth import logout_user
@@ -97,6 +232,28 @@ def _logout() -> None:
     st.session_state.page = "home"
 
 
+def _render_proactive_controls() -> None:
+    settings = get_proactive_settings()
+    enabled = bool(settings.get("enabled", True))
+    status = "已开启" if enabled else "已关闭"
+    note = "角色、树洞和心理评测会在合适时机轻轻来一条消息。" if enabled else "关闭后不会自动生成主动消息，手动按钮仍可测试。"
+    st.markdown(
+        f"""
+        <div class="proactive-panel">
+            <div>
+                <div class="proactive-title">主动关怀：{escape(status)}</div>
+                <div class="proactive-note">{escape(note)}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    label = "关闭主动关怀" if enabled else "开启主动关怀"
+    if st.button(label, key="toggle_proactive_care"):
+        set_proactive_enabled(not enabled)
+        st.rerun()
+
+
 def render_home_page() -> None:
     _inject_css()
     mode_text = "云端账号" if st.session_state.get("is_logged_in") else "本地存储"
@@ -108,6 +265,8 @@ def render_home_page() -> None:
         """,
         unsafe_allow_html=True,
     )
+    _render_profile_snapshot()
+    _render_proactive_controls()
 
     c1, c2, c3 = st.columns(3, gap="large")
     with c1:

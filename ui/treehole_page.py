@@ -8,6 +8,9 @@ import streamlit.components.v1 as components
 
 from services.app_storage import make_message, message_time, save_history_record, save_treehole_messages
 from services.local_ai import generate_reply, score_messages
+from services.proactive_engine import maybe_add_care_proactive
+from services.safety import assess_message_safety, attach_safety_metadata, make_safety_reply
+from ui.crisis_alert import queue_crisis_alert, render_crisis_alert_if_needed
 from ui.multimodal_controls import build_multimodal_prompt, render_multimodal_controls
 
 
@@ -131,6 +134,154 @@ div[data-testid="stForm"] {
 .stTextArea textarea::placeholder {
     color: rgba(183, 129, 142, .68) !important;
 }
+div[data-testid="stForm"]:has(#treehole-diary-anchor) {
+    position: relative;
+    width: min(1120px, 100%);
+    max-width: 1120px;
+    aspect-ratio: 1458 / 1066;
+    margin: 0 auto 14px auto;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background-repeat: no-repeat !important;
+    background-size: 100% 100% !important;
+    background-position: center !important;
+    box-shadow: none !important;
+    overflow: hidden;
+}
+div[data-testid="stForm"]:has(#treehole-diary-anchor) [data-testid="stVerticalBlock"] {
+    gap: 0 !important;
+}
+div[data-testid="stForm"]:has(#treehole-diary-anchor) label {
+    display: none !important;
+}
+div[data-testid="stForm"]:has(#treehole-diary-anchor) div[data-testid="stElementContainer"]:has(textarea) {
+    position: absolute !important;
+    left: 10.1% !important;
+    top: 24.8% !important;
+    width: 36.7% !important;
+    height: 63.6% !important;
+    z-index: 50 !important;
+    pointer-events: auto !important;
+}
+div[data-testid="stForm"]:has(#treehole-diary-anchor) [data-testid="stTextArea"] {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    margin-top: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    z-index: 50 !important;
+    pointer-events: auto !important;
+}
+div[data-testid="stForm"]:has(#treehole-diary-anchor) [data-testid="stTextArea"] > div,
+div[data-testid="stForm"]:has(#treehole-diary-anchor) [data-testid="stTextArea"] div[data-baseweb="textarea"] {
+    height: 100% !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+}
+div[data-testid="stForm"]:has(#treehole-diary-anchor) div[data-testid="InputInstructions"] {
+    display: none !important;
+}
+div[data-testid="stForm"]:has(#treehole-diary-anchor) textarea {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    resize: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: rgba(109, 77, 88, .78) !important;
+    font-family: "Segoe Print", "Comic Sans MS", "Kaiti SC", "KaiTi", cursive !important;
+    font-size: clamp(15px, 1.45vw, 22px) !important;
+    line-height: 2.03 !important;
+    padding: 0 1.2% !important;
+    caret-color: #c86f86 !important;
+    pointer-events: auto !important;
+    position: relative !important;
+    z-index: 51 !important;
+    outline: none !important;
+}
+div[data-testid="stForm"]:has(#treehole-diary-anchor) textarea::placeholder {
+    color: rgba(183, 129, 142, .56) !important;
+}
+div[data-testid="stForm"]:has(#treehole-diary-anchor) div[data-testid="stElementContainer"]:has(div[data-testid="stFormSubmitButton"]) {
+    position: absolute !important;
+    left: 36.2% !important;
+    top: 83.6% !important;
+    width: 10% !important;
+    z-index: 60 !important;
+    pointer-events: auto !important;
+}
+div[data-testid="stForm"]:has(#treehole-diary-anchor) div[data-testid="stElementContainer"]:has(div[data-testid="stFormSubmitButton"]):last-of-type {
+    left: 77% !important;
+    top: 81% !important;
+}
+div[data-testid="stForm"]:has(#treehole-diary-anchor) div[data-testid="stFormSubmitButton"] {
+    position: relative !important;
+    left: auto !important;
+    top: 0 !important;
+    margin-top: 0 !important;
+    width: 100% !important;
+    z-index: 60 !important;
+}
+div[data-testid="stForm"]:has(#treehole-diary-anchor) div[data-testid="stFormSubmitButton"] button {
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #c86f86 !important;
+    font-size: clamp(17px, 1.7vw, 26px) !important;
+    font-weight: 950 !important;
+    min-height: auto !important;
+    padding: 0 !important;
+}
+.treehole-page-date {
+    position: absolute;
+    left: 10.2% !important;
+    top: 0 !important;
+    margin-top: calc(min(1120px, calc(100vw - 60px)) * 1066 / 1458 * .122) !important;
+    color: #dfa2ac;
+    font-family: "Comic Sans MS", "Segoe Print", cursive;
+    font-size: clamp(13px, 1.35vw, 18px);
+    font-weight: 700;
+    z-index: 4;
+    pointer-events: none;
+}
+.treehole-page-reply {
+    position: absolute;
+    left: 54.6% !important;
+    top: 0 !important;
+    margin-top: calc(min(1120px, calc(100vw - 60px)) * 1066 / 1458 * .192) !important;
+    min-height: calc(min(1120px, calc(100vw - 60px)) * 1066 / 1458 * .65) !important;
+    width: 34%;
+    height: 65%;
+    overflow: hidden;
+    color: #7b4054;
+    font-family: "Kaiti SC", "STKaiti", "KaiTi", "FangSong", serif;
+    font-size: clamp(15px, 1.42vw, 21px);
+    line-height: 1.85;
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding: .5% 1%;
+    z-index: 4;
+    pointer-events: none;
+}
+.treehole-page-reply.empty {
+    color: rgba(185, 126, 139, .46);
+    font-family: "Segoe Print", "Comic Sans MS", cursive;
+}
+@media (max-width: 760px) {
+    div[data-testid="stForm"]:has(#treehole-diary-anchor) textarea {
+        font-size: 13px !important;
+        line-height: 1.7 !important;
+    }
+    .treehole-page-reply {
+        font-size: 13px;
+        line-height: 1.55;
+    }
+}
 </style>
 """
 
@@ -151,6 +302,46 @@ def _latest_message(messages, role: str) -> str:
         if msg.get("role") == role:
             return str(msg.get("content", ""))
     return ""
+
+
+def _latest_assistant_index(messages) -> int | None:
+    for idx in range(len(messages) - 1, -1, -1):
+        if messages[idx].get("role") == "assistant":
+            return idx
+    return None
+
+
+def _rating_feedback_summary(messages) -> str:
+    rated = [
+        msg
+        for msg in messages
+        if msg.get("role") == "assistant" and str(msg.get("rating") or "").isdigit()
+    ][-5:]
+    if not rated:
+        return ""
+    ratings = [int(msg.get("rating") or 0) for msg in rated]
+    average = sum(ratings) / len(ratings)
+    if average >= 4:
+        guidance = "用户更喜欢这种回复方式：温柔、具体、能接住情绪。继续保持相似语气，并给出一点可执行的小建议。"
+    elif average <= 2.5:
+        guidance = "用户之前对回复不太满意。请减少空泛安慰，先准确复述她的感受，再给更贴近她处境的回应。"
+    else:
+        guidance = "用户反馈中等。请更自然、更像日记对话，少说教，多回应她刚写下的具体内容。"
+    return (
+        "\n\n[过往日记回复评分反馈："
+        f"最近 {len(rated)} 次平均 {average:.1f}/5。{guidance}]"
+    )
+
+
+def _save_treehole_history(messages, scores, title: str) -> None:
+    record_id = save_history_record(
+        "treehole",
+        messages,
+        scores,
+        st.session_state.get("treehole_record_id"),
+        title=title,
+    )
+    st.session_state.treehole_record_id = record_id
 
 
 def _message_rating(idx: int, msg) -> None:
@@ -327,20 +518,57 @@ def _submit_treehole_message(prompt: str, emotion=None) -> None:
     prompt = str(prompt or "").strip()
     if not prompt:
         return
+    entry_page = int(st.session_state.get("treehole_entry_page", 0)) + 1
+    st.session_state.treehole_entry_page = entry_page
+    st.session_state.treehole_entry_key = f"treehole_native_entry_{entry_page}"
     messages = st.session_state.get("treehole_messages", [])
-    messages.append(make_message("user", prompt))
+    assessment = assess_message_safety(prompt)
+    messages.append(attach_safety_metadata(make_message("user", prompt), assessment))
     scores = score_messages(messages)
-    ai_prompt = build_multimodal_prompt(prompt, emotion)
-    messages.append(make_message("assistant", generate_reply("treehole", ai_prompt, messages, scores)))
+    if assessment.needs_support:
+        reply = make_safety_reply(assessment, "树洞")
+        assistant_message = make_message("assistant", reply)
+        assistant_message["safety_response"] = True
+        assistant_message["safety_level"] = assessment.level
+        if assessment.is_crisis:
+            assistant_message["crisis_popup"] = True
+            queue_crisis_alert("treehole", assessment, prompt, "树洞")
+        messages.append(assistant_message)
+    else:
+        ai_prompt = build_multimodal_prompt(prompt, emotion) + _rating_feedback_summary(messages)
+        messages.append(make_message("assistant", generate_reply("treehole", ai_prompt, messages, scores)))
     st.session_state.treehole_messages = messages
     st.session_state.treehole_show_latest_reply = True
     save_treehole_messages(messages)
-    save_history_record("treehole", messages, scores, title="AI 树洞聊天")
+    _save_treehole_history(messages, scores, title="AI 树洞聊天")
     st.rerun()
+
+
+def _apply_treehole_proactive(force: bool = False) -> bool:
+    messages = st.session_state.get("treehole_messages", [])
+    scores = score_messages(messages)
+    messages, added, _ = maybe_add_care_proactive("treehole", messages, scores, force=force)
+    if not added:
+        return False
+    st.session_state.treehole_messages = messages
+    st.session_state.treehole_show_latest_reply = True
+    save_treehole_messages(messages)
+    _save_treehole_history(messages, scores, title="AI 树洞主动关怀")
+    return True
 
 
 def render_treehole_page() -> None:
     _inject_css()
+    render_crisis_alert_if_needed()
+    flip_page = st.query_params.get("treehole_flip")
+    if flip_page:
+        st.query_params.clear()
+        st.session_state.treehole_show_latest_reply = False
+        entry_page = int(st.session_state.get("treehole_entry_page", 0)) + 1
+        st.session_state.treehole_entry_page = entry_page
+        st.session_state.treehole_entry_key = f"treehole_native_entry_{entry_page}"
+        st.rerun()
+
     rating = st.query_params.get("tree_rating")
     if rating:
         try:
@@ -348,8 +576,13 @@ def render_treehole_page() -> None:
             idx = int(idx_text)
             star = int(star_text)
             if 0 <= idx < len(st.session_state.get("treehole_messages", [])) and 1 <= star <= 5:
-                st.session_state.treehole_messages[idx]["rating"] = star
-                save_treehole_messages(st.session_state.treehole_messages)
+                messages = st.session_state.treehole_messages
+                messages[idx]["rating"] = star
+                messages[idx]["rated_at"] = datetime.now().isoformat(timespec="seconds")
+                st.session_state.treehole_messages = messages
+                scores = score_messages(messages)
+                save_treehole_messages(messages)
+                _save_treehole_history(messages, scores, title="AI 树洞聊天")
         except ValueError:
             pass
         st.query_params.clear()
@@ -359,6 +592,8 @@ def render_treehole_page() -> None:
     if submitted:
         st.query_params.clear()
         _submit_treehole_message(submitted)
+
+    _apply_treehole_proactive()
 
     st.markdown(
         """
@@ -372,23 +607,60 @@ def render_treehole_page() -> None:
     if st.button("← 返回功能选择", key="tree_back_home"):
         st.session_state.page = "home"
         st.rerun()
+    if st.button("收一条主动关怀", key="tree_force_proactive"):
+        if _apply_treehole_proactive(force=True):
+            st.rerun()
+        st.toast("还没有足够画像时，先写下一点心情会更准。")
 
     messages = st.session_state.get("treehole_messages", [])
-    _render_diary_component(messages)
+    bg_url = _treehole_bg_data_url()
+    if bg_url:
+        st.markdown(
+            f"""
+            <style>
+            div[data-testid="stForm"]:has(#treehole-diary-anchor) {{
+                background-image: url('{bg_url}') !important;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+    show_latest_reply = bool(st.session_state.get("treehole_show_latest_reply"))
+    latest_reply = _latest_message(messages, "assistant") if show_latest_reply else ""
+    reply_html = escape(latest_reply).replace("\n", "<br/>") if latest_reply else "日记会在这里回应你。"
+    reply_class = "" if latest_reply else " empty"
+    today = escape(datetime.now().strftime("%Y / %m / %d"))
+    entry_key = st.session_state.setdefault("treehole_entry_key", "treehole_native_entry_0")
 
-    with st.form("treehole_diary_form", clear_on_submit=True):
+    with st.form("treehole_diary_form", clear_on_submit=False):
+        st.markdown(
+            f"""
+            <span id="treehole-diary-anchor"></span>
+            <div class="treehole-page-date">{today}</div>
+            <div class="treehole-page-reply{reply_class}">{reply_html}</div>
+            """,
+            unsafe_allow_html=True,
+        )
         prompt = st.text_area(
             "写在日记左页",
-            key="treehole_native_entry",
+            key=entry_key,
             placeholder="把想说的话写在这里...",
             label_visibility="collapsed",
         )
         form_submitted = st.form_submit_button("确定", use_container_width=True)
+        flip_submitted = st.form_submit_button("翻页", use_container_width=True)
+    if flip_submitted:
+        st.session_state.treehole_show_latest_reply = False
+        entry_page = int(st.session_state.get("treehole_entry_page", 0)) + 1
+        st.session_state.treehole_entry_page = entry_page
+        st.session_state.treehole_entry_key = f"treehole_native_entry_{entry_page}"
+        st.rerun()
     if form_submitted:
         _submit_treehole_message(prompt)
 
-    for idx, msg in enumerate(messages):
-        _message_rating(idx, msg)
+    latest_assistant_idx = _latest_assistant_index(messages)
+    if latest_assistant_idx is not None:
+        _message_rating(latest_assistant_idx, messages[latest_assistant_idx])
 
     multimodal = render_multimodal_controls("treehole")
     if multimodal.get("voice_text"):

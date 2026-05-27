@@ -17,6 +17,12 @@ data/faiss_db/
 # 用户数据
 data/history/
 data/scores/
+data/treehole/
+data/companion/
+data/diary_ui/
+data/user_profile/
+data/proactive/
+data/.synced_ids.txt
 
 # 临时文件
 a.py

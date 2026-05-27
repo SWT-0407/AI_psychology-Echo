@@ -9,6 +9,8 @@ import glob
 from datetime import datetime
 import streamlit as st
 
+from services.message_format import messages_to_readable_text, normalize_messages
+
 # 本地数据存储目录
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 HISTORY_DIR = os.path.join(DATA_DIR, "history")
@@ -227,7 +229,7 @@ def auto_save_current_session():
     from utils.status_assets import get_status_assets
 
     session_id = generate_session_id()
-    display_messages = st.session_state.get("display_messages", [])
+    display_messages = normalize_messages(st.session_state.get("display_messages", []))
     scores = st.session_state.get("scores", {})
 
     # 计算综合评分
@@ -248,6 +250,8 @@ def auto_save_current_session():
         "session_id": session_id,
         "timestamp": datetime.now().isoformat(),
         "display_messages": display_messages,
+        "messages": display_messages,
+        "conversation_text": messages_to_readable_text(display_messages),
         "scores": scores,
         "composite_score": composite_score,
         "level_name": level_name,
