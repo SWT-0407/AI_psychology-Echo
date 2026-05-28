@@ -1018,7 +1018,7 @@ def _file_helper_row(active: bool) -> str:
         f'<div class="wx-avatar file">↪</div>'
         f'<div class="wx-contact-main">'
         f'<div class="wx-contact-name">文件传输助手</div>'
-        f'<div class="wx-contact-preview">这里是你的 AI 角色聊天区</div>'
+        f'<div class="wx-contact-preview">这里是你的另一世界入口</div>'
         f'</div><div class="wx-contact-time">{datetime.now().strftime("%H:%M")}</div>'
         f'</a>'
     )

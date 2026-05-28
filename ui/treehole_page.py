@@ -509,7 +509,7 @@ def _save_treehole_rating(idx: int, star: int) -> bool:
     st.session_state.treehole_messages = messages
     scores = score_messages(messages)
     save_treehole_messages(messages)
-    _save_treehole_history(messages, scores, title="AI 树洞聊天")
+    _save_treehole_history(messages, scores, title="秘密树洞聊天")
     return True
 
 
@@ -764,7 +764,7 @@ def _submit_treehole_message(prompt: str, emotion=None, image: Optional[Dict[str
     st.session_state.treehole_messages = messages
     st.session_state.treehole_show_latest_reply = True
     save_treehole_messages(messages)
-    _save_treehole_history(messages, scores, title="AI 树洞聊天")
+    _save_treehole_history(messages, scores, title="秘密树洞聊天")
     st.rerun()
 
 
@@ -777,7 +777,7 @@ def _apply_treehole_proactive(force: bool = False) -> bool:
     st.session_state.treehole_messages = messages
     st.session_state.treehole_show_latest_reply = True
     save_treehole_messages(messages)
-    _save_treehole_history(messages, scores, title="AI 树洞主动关怀")
+    _save_treehole_history(messages, scores, title="秘密树洞主动关怀")
     return True
 
 
@@ -812,7 +812,7 @@ def render_treehole_page() -> None:
     st.markdown(
         """
         <div class="tree-top">
-            <div class="tree-title">AI 树洞日记</div>
+            <div class="tree-title">秘密树洞</div>
             <div class="tree-subtitle">在左页写下秘密，点确定后，日记会在右页用另一种笔迹回应。</div>
         </div>
         """,

@@ -741,7 +741,7 @@ def init_runtime_state() -> None:
     st.session_state.setdefault("psy_scores", {})
     st.session_state.setdefault("psy_record_id", None)
     st.session_state.setdefault("treehole_messages", load_treehole_messages() or [
-        make_message("assistant", "这里是你的 AI 树洞。今天有什么想悄悄说给我听的吗？")
+        make_message("assistant", "这里是你的秘密树洞。今天有什么想悄悄说给我听的吗？")
     ])
     st.session_state.setdefault("selected_character_id", None)
     try:

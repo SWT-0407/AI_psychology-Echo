@@ -250,7 +250,7 @@ def _render_proactive_controls() -> None:
     settings = get_proactive_settings()
     enabled = bool(settings.get("enabled", True))
     status = "已开启" if enabled else "已关闭"
-    note = "角色、树洞和心理评测会在合适时机轻轻来一条消息。" if enabled else "关闭后不会自动生成主动消息，手动按钮仍可测试。"
+    note = "另一世界、秘密树洞和踩下心情会在合适时机轻轻来一条消息。" if enabled else "关闭后不会自动生成主动消息，手动按钮仍可测试。"
     st.markdown(
         f"""
         <div class="proactive-panel">
@@ -287,18 +287,18 @@ def render_home_page() -> None:
 
     c1, c2, c3 = st.columns(3, gap="large")
     with c1:
-        _feature_card("🔬", "心理评测", "六维访谈、每日心情、历史记录和心理评估报告。")
-        if st.button("进入心理评测", use_container_width=True, key="go_psytest"):
+        _feature_card("🔬", "踩下心情", "六维访谈、每日心情、历史记录和心理评估报告。")
+        if st.button("进入踩下心情", use_container_width=True, key="go_psytest"):
             st.session_state.page = "psytest"
             st.rerun()
     with c2:
-        _feature_card("🗣️", "AI树洞", "支持语音输入和表情识别的温暖聊天空间，每条 AI 回复都可以五星评价。")
-        if st.button("进入 AI 树洞", use_container_width=True, key="go_treehole"):
+        _feature_card("🗣️", "秘密树洞", "支持语音输入和表情识别的温暖聊天空间，每条 AI 回复都可以五星评价。")
+        if st.button("进入秘密树洞", use_container_width=True, key="go_treehole"):
             st.session_state.page = "treehole"
             st.rerun()
     with c3:
-        _feature_card("👥", "虚拟角色", "创建自定义角色，支持语音输入和表情识别，像联系人一样继续聊天。")
-        if st.button("进入虚拟角色", use_container_width=True, key="go_companion"):
+        _feature_card("👥", "另一世界", "创建自定义角色，支持语音输入和表情识别，像联系人一样继续聊天。")
+        if st.button("进入另一世界", use_container_width=True, key="go_companion"):
             st.session_state.page = "companion"
             st.rerun()
 

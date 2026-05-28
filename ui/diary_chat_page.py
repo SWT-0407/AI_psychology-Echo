@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from html import escape
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -1098,13 +1099,19 @@ div[data-testid="stForm"]:has(#intro-template-form-anchor) .stButton {
     transform: translateX(-50%);
     width: min(260px, 54vw);
 }
+.calendar-editor-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(76, 42, 55, .18);
+    z-index: 42;
+}
 div[data-testid="stForm"]:has(#calendar-editor-anchor) {
     position: fixed;
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
-    z-index: 30;
-    width: min(430px, 88vw);
+    z-index: 45;
+    width: min(560px, 92vw);
     max-height: none;
     overflow: visible;
     padding: 16px 18px 18px !important;
@@ -1612,6 +1619,93 @@ def _consume_calendar_save(year: int, month: int) -> None:
     st.rerun()
 
 
+def _calendar_edit_href(year: int, month: int, day: int) -> str:
+    key = f"{year}-{month:02d}-{day:02d}"
+    return "?" + urlencode(
+        {
+            "_local_mode": "1",
+            "_app_page": "psytest",
+            "_diary_stage": str(month),
+            "calendar_edit": key,
+        }
+    )
+
+
+def _calendar_edit_day(year: int, month: int) -> Optional[datetime]:
+    day_key = _query_value("calendar_edit")
+    if not day_key:
+        return None
+    try:
+        picked = datetime.strptime(day_key, "%Y-%m-%d")
+    except Exception:
+        st.query_params.clear()
+        st.rerun()
+        return None
+    if picked.year == year and picked.month == month:
+        return picked
+    st.query_params.clear()
+    st.rerun()
+    return None
+
+
+def _close_calendar_editor() -> None:
+    st.query_params.clear()
+    st.rerun()
+
+
+def _render_calendar_editor(edit_day: Optional[datetime], moods: Dict[str, Any]) -> None:
+    if not edit_day:
+        return
+
+    day_key = edit_day.strftime("%Y-%m-%d")
+    entry = _mood_entry(moods, day_key)
+    mood_options = list(range(len(CALENDAR_MOOD_OPTIONS)))
+    current_index = next(
+        (idx for idx, (emoji, _) in enumerate(CALENDAR_MOOD_OPTIONS) if emoji == entry["emoji"]),
+        0,
+    )
+
+    st.markdown('<div class="calendar-editor-backdrop"></div>', unsafe_allow_html=True)
+    with st.form(f"calendar_editor_{day_key}"):
+        st.markdown('<span id="calendar-editor-anchor"></span>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="calendar-modal-title">给 {edit_day.month} 月 {edit_day.day} 日贴一小格心情</div>',
+            unsafe_allow_html=True,
+        )
+        mood_index = st.radio(
+            "心情",
+            mood_options,
+            index=current_index,
+            format_func=lambda idx: f"{CALENDAR_MOOD_OPTIONS[idx][0] or '无'} {CALENDAR_MOOD_OPTIONS[idx][1]}",
+            horizontal=True,
+            help="选一个最贴近现在的感觉",
+            key=f"calendar_mood_{day_key}",
+        )
+        event = st.text_input(
+            "小事件（30字内）",
+            value=entry["event"],
+            max_chars=30,
+            placeholder="今天发生的小事件...",
+            key=f"calendar_event_{day_key}",
+        )
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            saved = st.form_submit_button("保存", use_container_width=True)
+        with c2:
+            cleared = st.form_submit_button("清空", use_container_width=True)
+        with c3:
+            closed = st.form_submit_button("返回", use_container_width=True)
+
+    if saved:
+        save_mood(day_key, CALENDAR_MOOD_OPTIONS[int(mood_index)][0], event)
+        _close_calendar_editor()
+    if cleared:
+        save_mood(day_key, "", "")
+        _close_calendar_editor()
+    if closed:
+        _close_calendar_editor()
+
+
 def _tabs(active: str) -> str:
     tabs = ["COVER", "INTRO", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "NOTE", "INFO"]
     html = ['<div class="diary-tabs">']
@@ -1774,12 +1868,12 @@ def render_calendar() -> None:
     year, month = today.year, today.month
     moods = st.session_state.get("diary_moods", {}) or {}
     _consume_calendar_save(year, month)
+    edit_day = _calendar_edit_day(year, month)
 
     if _template_path("calendar"):
         cal_for_overlay = calendar.Calendar(firstweekday=6)
         weeks_for_overlay = cal_for_overlay.monthdayscalendar(year, month)
         overlay_parts = []
-        modal_parts = []
         row_tops = [26.55, 38.05, 49.65, 61.55, 73.7, 85.1]
         row_heights = [10.35, 10.35, 10.45, 10.55, 10.65, 8.5]
 
@@ -1792,9 +1886,10 @@ def render_calendar() -> None:
                 cell_left = 15.6 + col_idx * 11.75
                 cell_top = row_tops[min(row_idx, len(row_tops) - 1)]
                 cell_height = row_heights[min(row_idx, len(row_heights) - 1)]
-                modal_id = f"calendar-modal-{key}"
+                href = _calendar_edit_href(year, month, day)
+                selected_class = " selected" if edit_day and edit_day.day == day else ""
                 overlay_parts.append(
-                    f'<a class="tpl-day-hotspot" href="#{modal_id}" '
+                    f'<a class="tpl-day-hotspot{selected_class}" href="{escape(href, quote=True)}" target="_self" '
                     f'style="left:{cell_left:.2f}%;top:{cell_top:.2f}%;width:11.75%;height:{cell_height:.2f}%;" aria-label="编辑 {key}"></a>'
                 )
                 if entry["emoji"] or entry["event"]:
@@ -1804,52 +1899,9 @@ def render_calendar() -> None:
                         f'<div class="entry-event">{escape(entry["event"])}</div></div>'
                     )
 
-                radios = []
-                for option, label in CALENDAR_MOOD_OPTIONS:
-                    checked = " checked" if option == entry["emoji"] or (option == "" and not entry["emoji"]) else ""
-                    label_class = "calendar-emoji-choice calendar-emoji-none" if option == "" else "calendar-emoji-choice"
-                    glyph = "无" if option == "" else escape(option)
-                    label_style = (
-                        "display:flex!important;flex-direction:column!important;align-items:center!important;"
-                        "justify-content:center!important;gap:2px!important;min-height:48px!important;"
-                        "padding:4px 6px!important;border:2px solid rgba(198,148,157,.52)!important;"
-                        "border-radius:12px!important;background:rgba(255,255,255,.72)!important;"
-                        "font-weight:850!important;cursor:pointer!important;user-select:none!important;"
-                        "pointer-events:auto!important;box-sizing:border-box!important;"
-                    )
-                    if checked:
-                        label_style += "border-color:#ef6f8f!important;background:#ffe6ee!important;box-shadow:0 0 0 2px rgba(239,111,143,.18)!important;"
-                    radios.append(
-                        f'<label class="{label_class}" title="{escape(label)}" style="{label_style}">'
-                        f'<input type="radio" name="mood_emoji" value="{escape(option)}"{checked} '
-                        f'style="position:absolute;width:1px;height:1px;margin:0;opacity:0;pointer-events:none;">'
-                        f'<span class="calendar-emoji-glyph">{glyph}</span>'
-                        f'<span class="calendar-emoji-name">{escape(label)}</span>'
-                        f'</label>'
-                    )
-                modal_parts.append(
-                    f'<div class="calendar-modal-shade" id="{modal_id}">'
-                    f'<a class="calendar-modal-backdrop" href="#calendar" aria-label="关闭弹窗"></a>'
-                    f'<form class="calendar-modal" method="get">'
-                    f'<input type="hidden" name="_local_mode" value="1">'
-                    f'<input type="hidden" name="_app_page" value="psytest">'
-                    f'<input type="hidden" name="_diary_stage" value="{month}">'
-                    f'<input type="hidden" name="mood_day" value="{key}">'
-                    f'<div class="calendar-modal-title">给 {month} 月 {day} 日贴一小格心情</div>'
-                    f'<div class="calendar-field-row"><span class="calendar-field-title">心情</span><span class="calendar-field-hint">选一个最贴近现在的感觉</span></div>'
-                    f'<div class="calendar-emoji-row" style="display:grid!important;grid-template-columns:repeat(6,minmax(0,1fr))!important;gap:8px!important;margin:8px 0 16px!important;width:100%!important;box-sizing:border-box!important;">{"".join(radios)}</div>'
-                    f'<label>小事件（30字内）</label>'
-                    f'<input type="text" name="mood_event" value="{escape(entry["event"])}" maxlength="30" placeholder="今天发生的小事件...">'
-                    f'<div class="calendar-modal-actions">'
-                    f'<button type="submit">💾 保存</button>'
-                    f'<button type="submit" name="mood_clear" value="1">🧽 清空</button>'
-                    f'<a href="#calendar">↩ 返回</a>'
-                    f'</div></form></div>'
-                )
-
-        overlay_parts.extend(modal_parts)
         st.markdown('<span id="calendar"></span>', unsafe_allow_html=True)
         _render_template("calendar", "".join(overlay_parts))
+        _render_calendar_editor(edit_day, moods)
         return
 
     _open_shell(str(month))
@@ -2432,7 +2484,7 @@ def _apply_psy_proactive(messages: List[Dict[str, Any]], scores: Dict[str, int],
         messages,
         scores,
         st.session_state.get("psy_record_id"),
-        title="AI 心理评测主动关怀",
+        title="踩下心情主动关怀",
         mood="",
     )
     st.session_state.psy_record_id = record_id

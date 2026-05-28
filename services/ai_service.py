@@ -117,7 +117,7 @@ def analyze_user_image(image_bytes, user_text="", mime_type="image/png", detail=
         raise RuntimeError("QWEN_API_KEY 未配置。")
 
     prompt = (
-        "你是 AI 树洞聊天里的图片理解助手。请用自然中文客观分析用户上传的图片，"
+        "你是秘密树洞聊天里的图片理解助手。请用自然中文客观分析用户上传的图片，"
         "包括可见内容、场景氛围、图片中文字（如有）和可能关联的情绪线索。"
         "不要做医学诊断，不要识别真实身份，不要推断敏感属性。"
         "请控制在 120 字以内，最后给出一个适合树洞回复参考的主题或情绪线索。"
