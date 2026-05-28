@@ -1112,8 +1112,9 @@ div[data-testid="stForm"]:has(#calendar-editor-anchor) {
     transform: translate(-50%, -50%);
     z-index: 45;
     width: min(560px, 92vw);
-    max-height: none;
-    overflow: visible;
+    height: auto !important;
+    max-height: min(84vh, 720px);
+    overflow-y: auto;
     padding: 16px 18px 18px !important;
     border: 2px solid rgba(168, 101, 116, .86) !important;
     border-radius: 20px !important;
@@ -1138,11 +1139,53 @@ div[data-testid="stForm"]:has(#calendar-editor-anchor) .stRadio {
     margin-top: 0;
 }
 div[data-testid="stForm"]:has(#calendar-editor-anchor) [role="radiogroup"] {
-    gap: 5px 8px !important;
-    flex-wrap: wrap !important;
+    display: grid !important;
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    width: 100% !important;
 }
 div[data-testid="stForm"]:has(#calendar-editor-anchor) [role="radio"] {
-    min-height: 26px !important;
+    min-width: 0 !important;
+    min-height: 58px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 6px 4px !important;
+    border: 2px solid rgba(198, 148, 157, .52) !important;
+    border-radius: 12px !important;
+    background: rgba(255, 255, 255, .72) !important;
+    box-sizing: border-box !important;
+    cursor: pointer !important;
+    transition: transform .12s ease, border-color .12s ease, background .12s ease, box-shadow .12s ease !important;
+}
+div[data-testid="stForm"]:has(#calendar-editor-anchor) [role="radio"]:hover {
+    border-color: rgba(224, 106, 132, .9) !important;
+    background: #fff !important;
+    transform: translateY(-1px);
+}
+div[data-testid="stForm"]:has(#calendar-editor-anchor) [role="radio"][aria-checked="true"] {
+    border-color: #ef6f8f !important;
+    background: #ffe6ee !important;
+    box-shadow: 0 0 0 2px rgba(239, 111, 143, .18) !important;
+}
+div[data-testid="stForm"]:has(#calendar-editor-anchor) [role="radio"] > div:first-child:not(:has(p)),
+div[data-testid="stForm"]:has(#calendar-editor-anchor) [role="radio"] input[type="radio"],
+div[data-testid="stForm"]:has(#calendar-editor-anchor) [role="radio"] svg {
+    display: none !important;
+}
+div[data-testid="stForm"]:has(#calendar-editor-anchor) [role="radio"] p {
+    width: 100% !important;
+    margin: 0 !important;
+    color: #7a5360 !important;
+    font-size: 13px !important;
+    font-weight: 850 !important;
+    line-height: 1.12 !important;
+    text-align: center !important;
+    white-space: pre-line !important;
+}
+div[data-testid="stForm"]:has(#calendar-editor-anchor) [role="radio"] p::first-line {
+    font-size: 22px !important;
+    line-height: 1 !important;
 }
 div[data-testid="stForm"]:has(#calendar-editor-anchor) .stButton > button {
     min-height: 36px;
@@ -1676,7 +1719,7 @@ def _render_calendar_editor(edit_day: Optional[datetime], moods: Dict[str, Any])
             "心情",
             mood_options,
             index=current_index,
-            format_func=lambda idx: f"{CALENDAR_MOOD_OPTIONS[idx][0] or '无'} {CALENDAR_MOOD_OPTIONS[idx][1]}",
+            format_func=lambda idx: f"{CALENDAR_MOOD_OPTIONS[idx][0] or '无'}\n{CALENDAR_MOOD_OPTIONS[idx][1]}",
             horizontal=True,
             help="选一个最贴近现在的感觉",
             key=f"calendar_mood_{day_key}",
