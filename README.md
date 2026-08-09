@@ -1,202 +1,216 @@
-﻿<p align="center">
-  <img src="img_1.png" alt="心聆 Echo" width="200"/>
-</p>
+<div align="center">
 
-<h1 align="center">心聆 Echo — AI 心理陪伴与状态感知助手</h1>
+# 心聆 Echo
 
-<p align="center">
-  <strong>三个心理空间 · 六维状态画像 · 多模态感知 · 长程记忆 · 安全边界</strong>
-</p>
+**面向日常自我觉察的 AI 心理陪伴与状态感知原型**
 
----
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.57-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![Tests](https://img.shields.io/badge/core%20tests-13%20passed-2EA44F)](#测试)
 
-## 🌟 项目简介
+日记与六维状态画像 · 匿名树洞 · 长程 AI 伴侣 · 多模态输入 · 本地/云端可选
 
-**心聆 Echo** 是一款基于 **Streamlit** 构建的 AI 心理陪伴应用，融合了**大语言模型（DeepSeek / Qwen）**、**多模态感知（语音 / 表情 / TTS）**、**RAG 知识检索**与**长程记忆**能力。
+</div>
 
-| 空间 | 定位 | 核心能力 |
-|------|------|----------|
-| 🔽 **踩下心情** | 日记与自我觉察 | 六维状态评估、雷达图画像、智能评语、周月报告 |
-| 🌳 **秘密树洞** | 匿名情绪释放 | 语音输入、表情识别、AI 共情回复 |
-| 🌍 **另一个世界** | 长期 AI 伴侣 | 长程记忆、亲密度成长、关系阶段演进、主动关怀 |
+> [!IMPORTANT]
+> Echo 是学习与研究用途的心理陪伴原型，不是医疗器械，不提供临床诊断、治疗建议或紧急救援。评分来自规则和模型生成，尚未经过临床效度验证。遇到现实危险或持续心理困扰时，请优先联系当地紧急服务、学校心理中心、专业机构或身边可信任的人。完整边界见 [SAFETY.md](SAFETY.md)。
 
-> ⚠️ **Echo 是心理陪伴与状态感知工具，不是医疗诊断或应急系统。** 详情请参阅 [SAFETY.md](./SAFETY.md)。
+## 项目概览
 
----
+Echo 使用 Streamlit 将日记记录、对话、多模态输入、状态评估、长程记忆和可选云同步组织为三个相互独立的心理空间。项目默认支持本地 JSON 存储和规则式回复；配置模型或云服务后，可启用 DeepSeek、Qwen、LoRA 模型和 Supabase。
 
-## ✨ 核心功能
+| 心理空间 | 用户任务 | 已实现能力 |
+| --- | --- | --- |
+| **踩下心情** | 记录日记并观察状态变化 | 六维评分、雷达图、综合状态、周/月趋势与报告 |
+| **秘密树洞** | 低压力地表达情绪 | 文本/语音/表情输入、模型或本地回复、安全提示 |
+| **另一个世界** | 与长期 AI 角色持续对话 | 角色创建、聊天记忆、亲密度与关系阶段、主动关怀 |
 
-### 🧠 AI 对话引擎（双模式）
-- **DeepSeek 云端模式**：API 调用，支持复杂对话与深度共情
-- **Qwen 本地模式**：基于 Qwen + LoRA 微调模型本地运行，完全离线
-- **模式自动切换**：TREEHOLE_REPLY_PROVIDER=auto 优先云端，降级到本地
-- **六维心理评估提示词体系**：情绪、焦虑、生理、行为、社交、认知
+## 界面预览
 
-### 🎭 多模态感知系统
-| 模态 | 能力 | 依赖 |
-|------|------|------|
-| 🎤 语音输入 | 实时语音转文字，文件上传 | QWEN_API_KEY 或本地麦克风 |
-| 🎧 TTS 语音回复 | AI 回复语音播报 | QWEN_API_KEY |
-| 📷 表情识别 | 摄像头实时面部表情分析 | OpenCV + QWEN_API_KEY |
-| 📝 文字输入 | 基础文本 | 无 |
+| 心理日记 | 对话与状态追踪 | 六维画像与报告 |
+| --- | --- | --- |
+| ![心理日记输入界面](img.png) | ![对话与实时状态追踪](img_1.png) | ![六维状态画像与分析报告](img_2.png) |
 
-### 📊 六维心理状态评估
-从日记/对话自动提取六个维度健康评分（0-100）：
+截图展示的是项目原型界面与示例数据，不代表医学评估结果。
 
-| 维度 | 代码 | 评估内容 | 关键词示例 |
-|------|------|----------|------------|
-| 情绪状态 | x1 | 情绪稳定性 | 开心、低落、麻木、崩溃 |
-| 焦虑与压力 | x2 | 焦虑水平 | 焦虑、紧张、担心、惊恐 |
-| 生理状态 | x3 | 睡眠、饮食、躯体 | 失眠、头痛、疲惫、心悸 |
-| 行为与动力 | x4 | 行动力、拖延 | 拖延、不想动、坚持、计划 |
-| 社交与支持 | x5 | 社会支持感 | 朋友、孤独、倾诉、冲突 |
-| 认知与意义 | x6 | 自我价值感 | 迷茫、自责、希望、意义 |
+## 能力与运行模式
 
-- 雷达图可视化 · 综合评分 · 周报/月报趋势追踪
+| 能力 | 零配置本地模式 | 可选增强 | 数据边界 |
+| --- | --- | --- | --- |
+| 日记、画像和本地历史 | 可用 | Supabase 同步 | 默认写入 `data/`；云同步需主动配置 |
+| 树洞/伴侣回复 | 本地规则兜底 | DeepSeek API 或本地 Qwen + LoRA | 使用云端模型时，输入会发送给相应服务商 |
+| 语音、TTS、表情 | 部分本地能力 | Qwen API、麦克风、摄像头 | 设备权限和外部 API 均为可选 |
+| RAG 知识检索 | 需本地构建索引 | ChromaDB、FAISS、BGE embeddings | 知识库和向量索引保存在本机 |
+| 主动关怀 | 应用内规则调度 | 可调整频率与免打扰时段 | 不会在后台自动联系第三方或救援机构 |
 
-### 🔐 隐私与安全
-- **本地离线模式**：不配置 API Key 即可运行，数据仅存 data/
-- **云端可选**：Supabase 同步需用户授权
-- **安全边界**：三级风险分级，高风险仅前台建议，**不后台上报**
+模型回复提供者由 `ECHO_REPLY_PROVIDER` 或 `TREEHOLE_REPLY_PROVIDER` 控制：
 
-### 🧩 RAG 知识检索
-LangChain + ChromaDB + FAISS，嵌入模型 BAAI/bge-small-zh-v1.5
+- `auto`：检测到本地 LoRA checkpoint 时优先本地模型，否则尝试 DeepSeek，最后使用规则式兜底。
+- `deepseek`：只请求 DeepSeek；密钥缺失或调用失败时显示错误/安全兜底。
+- `local`：只使用本地 Qwen + LoRA；需要可用 checkpoint 和相应推理依赖。
 
-### 🎯 Qwen 微调
-LoRA 微调脚本 inetune_qwen.py，数据准备 data/prepare_finetune_data.py
+## 系统结构
 
-### 🔔 主动推送引擎
-三通道定时关怀（陪伴 6h / 树洞 8h / 测评 12h），可配频率和免打扰时段
+```mermaid
+flowchart LR
+    U["Streamlit UI"] --> D["日记与六维状态"]
+    U --> T["树洞与 AI 伴侣"]
+    U --> M["语音 / 表情 / TTS"]
+    D --> S["本地 JSON 存储"]
+    T --> P["回复路由"]
+    P --> L["本地规则或 Qwen + LoRA"]
+    P --> C["DeepSeek API"]
+    T --> R["RAG 检索"]
+    M --> Q["Qwen API / 本地设备"]
+    S -. 用户主动启用 .-> DB["Supabase"]
+    D --> G["安全规则与前台提示"]
+    T --> G
+```
 
----
+主要模块：
 
-## 🏗 项目架构
+```text
+AI_psychology-Echo/
+├── main.py                       # Streamlit 入口与页面路由
+├── ui/                           # 首页、日记、树洞、伴侣和个人资料页面
+├── services/
+│   ├── psych_assessment.py       # 六维状态评估
+│   ├── treehole_ai_service.py    # 本地/云端回复路由
+│   ├── local_ai.py               # 本地规则和安全兜底
+│   ├── local_model_service.py    # Qwen + LoRA 推理
+│   ├── multimodal_service.py     # 语音、表情和 TTS
+│   ├── rag_service.py            # RAG 检索
+│   ├── proactive_engine.py       # 应用内主动关怀
+│   ├── storage_local.py          # 本地 JSON 存储
+│   ├── storage_cloud.py          # Supabase 同步
+│   └── safety.py                 # 风险识别与安全提示
+├── inducing/                     # 知识库索引构建
+├── data/                         # 本地运行数据和微调数据工具
+├── tests/                        # 核心逻辑、存储、多模态与页面测试
+├── finetune_qwen.py              # LoRA 微调实验脚本
+├── requirements.txt
+├── setup_guide.md
+└── SAFETY.md
+```
 
-`
-├── main.py                     # 入口（Streamlit 路由）
-├── ui/                         # 前端页面
-│   ├── home_page.py            # 首页（三个空间入口）
-│   ├── diary_chat_page.py      # 踩下心情——日记与心理评估
-│   ├── treehole_page.py        # 秘密树洞
-│   ├── companion_page.py       # 另一个世界——AI 伴侣
-│   ├── profile_page.py         # 个人资料
-│   ├── multimodal_controls.py  # 多模态控制组件
-│   ├── crisis_alert.py         # 危机预警 UI
-│   └── sidebar.py              # 侧边栏
-├── services/                   # 核心服务层
-│   ├── ai_service.py           # DeepSeek AI 对话
-│   ├── local_ai.py             # 本地规则引擎 + Qwen
-│   ├── local_model_service.py  # 本地模型管理
-│   ├── multimodal_service.py   # 语音/表情服务
-│   ├── psych_assessment.py     # 六维心理评估引擎
-│   ├── treehole_ai_service.py  # 树洞 AI 回复
-│   ├── app_storage.py          # 运行时状态与存储路由
-│   ├── storage_auth.py         # 登录认证
-│   ├── storage_cloud.py        # Supabase 云同步
-│   ├── storage_local.py        # 本地 JSON 存储
-│   ├── user_profile.py         # 用户画像管理
-│   ├── message_format.py       # 消息格式化
-│   ├── rag_service.py          # RAG 检索（ChromaDB）
-│   ├── proactive_engine.py     # 主动推送引擎
-│   └── safety.py               # 安全边界检查
-├── data/                       # 本地数据
-│   ├── diary_ui/               # 日记数据
-│   ├── companion/              # 伴侣数据
-│   └── treehole/               # 树洞数据
-├── tests/                      # 测试用例
-├── tools/                      # 辅助工具
-├── scripts/                    # 项目脚本
-├── inducing/                   # RAG 知识库构建
-├── Multimodal/                 # 多模态配置
-├── requirements.txt            # 依赖清单
-├── setup_guide.md              # 安装指南
-└── SAFETY.md                   # 安全说明
-`
+## 快速开始
 
----
+### 1. 环境准备
 
-## 🚀 快速开始
+推荐 Python 3.10-3.12。完整依赖包含 PyTorch、OpenCV、向量检索和音频组件，首次安装时间较长；`PyAudio` 在部分 Windows 环境需要 Conda 或预编译 wheel。
 
-### 环境要求
-Python 3.10+，Windows/macOS/Linux，摄像头/麦克风（可选）
-
-### 安装
-`powershell
+```powershell
 git clone https://github.com/SWT-0407/AI_psychology-Echo.git
-cd AI_psychology-Echo
+Set-Location AI_psychology-Echo
+
 python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.example .env    # 编辑 .env 按需配置
-streamlit run main.py     # 启动
-`
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
 
-### .env 配置
-| 变量 | 用途 | 必填 |
-|------|------|------|
-| DEEPSEEK_API_KEY | DeepSeek 对话模型 | ❌ |
-| QWEN_API_KEY | 语音/表情/TTS | ❌ |
-| TREEHOLE_REPLY_PROVIDER | 树洞回复来源 | ❌ |
-| LOCAL_LORA_PATH | 本地微调模型路径 | ❌ |
-| SUPABASE_URL/KEY | 云同步 | ❌ |
+macOS / Linux 激活命令：
 
-> 首次进入选择 **「跳过 → 本地使用」** 即可。
+```bash
+source .venv/bin/activate
+```
+
+### 2. 配置
+
+```powershell
+Copy-Item .env.example .env
+```
+
+所有外部服务均为可选。零配置体验可以直接跳过登录，以本地模式进入。
+
+```env
+# 可选模型服务
+DEEPSEEK_API_KEY=
+QWEN_API_KEY=
+
+# auto / deepseek / local
+ECHO_REPLY_PROVIDER=auto
+TREEHOLE_REPLY_PROVIDER=auto
+LOCAL_LORA_PATH=./qwen_psychology_finetuned
+
+# 可选云同步
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+```
+
+不要提交 `.env`、聊天记录、日记、摄像头/语音数据或任何真实用户隐私信息。
+
+### 3. 启动
+
+```powershell
+streamlit run main.py
+```
+
+浏览器打开 Streamlit 提供的本地地址，登录页选择“跳过 / 本地使用”即可进入零配置模式。完整环境说明见 [setup_guide.md](setup_guide.md)。
+
+## 六维状态画像
+
+系统从日记和对话中维护六个观察维度：情绪状态、焦虑与压力、生理状态、行为与动力、社交与支持、认知与意义。它们用于个人趋势观察，不是标准化心理量表，也不能替代专业评估。
+
+当前基础评分路径是“关键词/规则信号 -> 覆盖度与基线修正 -> 六维汇总 -> 可视化与生成式说明”。规则的优点是离线、透明和易调试；局限是对语境、反讽、个体差异和临床含义理解有限。任何研究或展示都应同时报告这些局限，而不是只展示单个总分。
+
+## 数据与隐私
+
+- 本地模式将会话和画像写入 `data/` 下的 JSON 文件；该目录中的运行数据不应提交。
+- Supabase 仅在用户配置项目并选择云端流程后使用。请在自己的 Supabase 项目中配置访问控制，不要使用高权限 service key 作为前端密钥。
+- DeepSeek/Qwen 模式会把相应输入发送给模型服务商。不要输入身份证号、医疗记录、联系方式等不必要的敏感信息。
+- 摄像头和麦克风能力需要系统权限；不使用时保持关闭。
+- 高风险提示仅在前台展示资源建议，不会自动报警、定位或联系任何人。
+
+## 测试
+
+运行完整测试套件：
+
+```powershell
+python -m pytest -q
+```
+
+只验证不依赖 Streamlit/OpenAI/Supabase 的核心安全、评估和本地回复逻辑：
+
+```powershell
+python -m pytest -q tests/test_safety.py tests/test_psych_assessment.py tests/test_local_ai.py
+```
+
+2026-08-09 在未安装项目可选依赖的裸 Python 3.14 环境中，核心子集为 `13 passed`；完整套件需要先安装 `requirements.txt`，否则会在导入 Streamlit/OpenAI/Supabase 时停止收集。这个结果说明核心纯 Python 逻辑可执行，不代表完整 UI、多模态或云服务已经在所有平台验证。
+
+## RAG 与微调实验
+
+重建本地知识索引：
+
+```powershell
+python inducing/rebuild_all_books.py
+```
+
+准备微调数据并启动 LoRA 实验：
+
+```powershell
+python data/prepare_finetune_data.py
+python finetune_qwen.py
+```
+
+微调脚本和仓库内训练数据用于课程/研究实验。使用前应检查数据许可、敏感信息、标签质量、训练/测试泄漏，并记录基座模型、随机种子、硬件、指标和失败案例。
+
+## 当前限制与研究方向
+
+- 六维评分尚无临床验证，当前只能作为自我观察与交互原型。
+- 多模态、云模型和 Supabase 流程依赖外部服务、网络和用户配置。
+- 本地 LoRA 模型对硬件和模型文件有额外要求，仓库不附带大模型权重。
+- RAG、生成回复和主动关怀需要更系统的离线评测，包括基线、消融、鲁棒性、偏差和成本。
+- 后续研究优先级是建立匿名评测集、数据治理文档、错误分类、可复现 benchmark 和明确的个人贡献记录。
+
+## 许可与责任
+
+仓库当前没有独立的开源许可证文件。除非另有书面授权，代码与素材仅按仓库声明用于学习和研究，不应推定可用于商业产品、医疗场景或再分发第三方模型/素材。准备公开协作前，应分别确认代码、训练数据、字体、图片、模型权重和音频素材的许可。
 
 ---
 
-## 🧩 UI 页面
+<div align="center">
 
-| 页面 | 说明 |
-|------|------|
-| 🏠 首页 | 三个空间入口，主动推送消息 |
-| 📝 踩下心情 | 日历视图、写日记、六维雷达图、周月报 |
-| 🌳 秘密树洞 | 匿名聊天、语音/表情输入、AI 共情回复 |
-| 🌍 另一个世界 | 微信风格气泡、角色创建、长程记忆、亲密度系统 |
-| 👤 个人资料 | 信息编辑、画像概览、云同步设置 |
+**心聆 Echo：让情绪被记录，让变化可回看。**
 
----
-
-## 📦 服务层
-
-### AI 评估算法
-1. 关键词匹配→信号强度（-1.15~+0.9）→基线（6.0-7.0）调整→覆盖度修正→加权汇总
-2. 权重：x1=0.20, x2=0.18, x3=0.14, x4=0.16, x5=0.12, x6=0.20
-
-### 用户画像
-六维信号追踪，指数衰减（半衰期 7 天），事件上限 80 条，自动话题挖掘与标签
-
-### 安全边界
-三级风险分级，危机关键词库，高风险仅前台展示建议
-
-### 数据存储
-本地 JSON（零配置）或 Supabase 云同步（需授权）
-
----
-
-## 🧪 测试
-`powershell
-pytest tests/ -v
-`
-
-## 🔧 可选功能
-- **云同步**：Supabase 建表后配置 .env
-- **多模态**：需 QWEN_API_KEY + OpenCV
-- **RAG**：python inducing/rebuild_all_books.py
-- **微调**：python data/prepare_finetune_data.py && python finetune_qwen.py
-
----
-
-## 📋 依赖
-streamlit==1.57.0 python-dotenv==1.2.2 openai==2.36.0 supabase==2.30.0 
-umpy==2.4.4 pandas==3.0.2 matplotlib==3.10.9 opencv-python==4.13.0.92 SpeechRecognition==3.16.1 pyttsx3==2.99 PyAudio==0.2.14 langchain-community==0.4.1 langchain-huggingface==1.2.2 langchain-chroma==1.1.0 aiss-cpu==1.13.2 sentence-transformers==5.4.1
-
----
-
-## 📄 许可
-仅供学习和研究使用。
-
-<p align="center">
-  <strong>心聆 Echo — 听见你的每一次心动</strong>
-  <br>
-  <sub>用 AI 温暖陪伴，让情绪被看见</sub>
-</p>
+</div>
